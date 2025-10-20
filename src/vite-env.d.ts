@@ -12,6 +12,11 @@ interface ImportMetaEnv {
    */
   readonly VITE_SOCKET_SERVER_URL: string;
   /**
+   * Dedicated WebSocket endpoint powering the WebRTC signaling workflow.
+   * Example: "wss://navigator.example.com/signaling".
+   */
+  readonly VITE_SIGNALING_SERVER_URL: string;
+  /**
    * Flag that toggles verbose logging for development troubleshooting.
    * Accepts string literal booleans so it can be mapped from environment values.
    */
@@ -112,5 +117,18 @@ export type {
   Participant,
   ParticipantRole,
 } from './types/session';
+
+export type {
+  SignalingClientEventMap,
+  SignalingClientMessage,
+  SignalingEventHandler,
+  SignalingErrorPayload,
+  SignalingMessageEnvelope,
+  SignalingParticipantPayloads,
+  SignalingRequestType,
+  SignalingRoomAckPayloads,
+  SignalingRtcPayloads,
+  SignalingServerMessage,
+} from './types/signaling';
 
 export {};
