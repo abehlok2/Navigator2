@@ -107,4 +107,10 @@ export type {
   UserRole,
 } from './types/auth';
 
+export type {
+  ConnectionStatus,
+  Participant,
+  ParticipantRole,
+} from './types/session';
+
 export {};

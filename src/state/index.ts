@@ -1,7 +1,4 @@
-import { create } from 'zustand';
-
-export type TODOState = {
-  // TODO: Define state shape
-};
-
-export const useTODOStore = create<TODOState>(() => ({} as TODOState));
+export { useAuthStore } from './auth';
+export { useSessionStore } from './session';
+export type { AuthState } from './auth';
+export type { SessionState } from './session';
