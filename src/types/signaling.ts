@@ -14,6 +14,8 @@
  * the client can pair responses to their originating request.
  */
 
+import type { Participant, ParticipantRole } from './session';
+
 /**
  * Shared shape used for every WebSocket message exchanged with the signaling
  * service.
@@ -66,7 +68,7 @@ export interface SignalingRoomAckPayloads {
    * Response to a `join-room` request. Provides the unique identifier assigned
    * to the participant inside the requested room.
    */
-  'room-joined': { roomId: string; participantId: string };
+  'room-joined': { roomId: string; participantId: string; participants: Participant[] };
 }
 
 /**
@@ -74,7 +76,7 @@ export interface SignalingRoomAckPayloads {
  */
 export interface SignalingParticipantPayloads {
   /** A new participant joined the active room. */
-  'participant-joined': { participantId: string };
+  'participant-joined': { participantId: string; username: string; role: ParticipantRole };
   /** A participant left the active room. */
   'participant-left': { participantId: string };
 }

@@ -1,9 +1,9 @@
 import type { CSSProperties } from 'react';
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { Button, Card, Input } from '../components/ui';
-import { SignalingClient } from '../features/webrtc';
+import { useSignalingClient } from '../features/webrtc';
 import { useAuthStore } from '../state/auth';
 import { useSessionStore } from '../state/session';
 
@@ -53,21 +53,18 @@ export const HomePage = () => {
   const token = useAuthStore((state) => state.token);
   const logout = useAuthStore((state) => state.logout);
   const setRoom = useSessionStore((state) => state.setRoom);
+  const setParticipants = useSessionStore((state) => state.setParticipants);
+  const setConnectionStatus = useSessionStore((state) => state.setConnectionStatus);
   const clearSession = useSessionStore((state) => state.clearSession);
 
   const navigate = useNavigate();
 
-  const signalingClientRef = useRef<SignalingClient>();
-
-  if (!signalingClientRef.current) {
-    signalingClientRef.current = new SignalingClient();
-  }
-
-  const signalingClient = signalingClientRef.current;
+  const signalingClient = useSignalingClient();
 
   const [createdRoomId, setCreatedRoomId] = useState<string | null>(null);
   const [isCreatingRoom, setIsCreatingRoom] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [createPassword, setCreatePassword] = useState('');
 
   const [joinRoomId, setJoinRoomId] = useState('');
   const [joinPassword, setJoinPassword] = useState('');
@@ -76,9 +73,7 @@ export const HomePage = () => {
 
   useEffect(() => {
     if (!token) {
-      return () => {
-        signalingClient.disconnect();
-      };
+      return undefined;
     }
 
     let isMounted = true;
@@ -94,7 +89,6 @@ export const HomePage = () => {
 
     return () => {
       isMounted = false;
-      signalingClient.disconnect();
     };
   }, [signalingClient, token]);
 
@@ -116,8 +110,15 @@ export const HomePage = () => {
 
     try {
       await ensureConnected();
-      const { roomId } = await signalingClient.createRoom('');
+      const trimmedPassword = createPassword.trim();
+      const { roomId } = await signalingClient.createRoom(trimmedPassword);
       setCreatedRoomId(roomId);
+      if (roomId) {
+        setJoinRoomId(roomId);
+      }
+      if (createPassword) {
+        setJoinPassword(trimmedPassword);
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Unable to create a new room. Please try again.';
@@ -125,16 +126,22 @@ export const HomePage = () => {
     } finally {
       setIsCreatingRoom(false);
     }
-  }, [ensureConnected, signalingClient]);
+  }, [createPassword, ensureConnected, signalingClient]);
 
   const handleJoinRoom = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
 
       const trimmedRoomId = joinRoomId.trim();
+      const trimmedPassword = joinPassword.trim();
 
       if (!trimmedRoomId) {
         setJoinError('Room ID is required.');
+        return;
+      }
+
+      if (!user?.role) {
+        setJoinError('Your account is missing a role. Please contact an administrator.');
         return;
       }
 
@@ -143,11 +150,25 @@ export const HomePage = () => {
 
       try {
         await ensureConnected();
-        await signalingClient.joinRoom(trimmedRoomId, joinPassword);
+        const { participants } = await signalingClient.joinRoom(trimmedRoomId, trimmedPassword);
 
-        if (user?.role) {
-          setRoom(trimmedRoomId, user.role);
-        }
+        const normalizedParticipants =
+          participants.length > 0
+            ? participants.map((participant) => ({ ...participant }))
+            : [
+                {
+                  id: user.id,
+                  username: user.username,
+                  role: user.role,
+                  isOnline: true,
+                },
+              ];
+
+        setRoom(trimmedRoomId, user.role, normalizedParticipants);
+        setParticipants(normalizedParticipants);
+        setConnectionStatus('connected');
+
+        setJoinPassword(trimmedPassword);
 
         navigate(`/session/${encodeURIComponent(trimmedRoomId)}`);
       } catch (error) {
@@ -160,7 +181,17 @@ export const HomePage = () => {
         setIsJoiningRoom(false);
       }
     },
-    [ensureConnected, joinPassword, joinRoomId, navigate, setRoom, signalingClient, user?.role],
+    [
+      ensureConnected,
+      joinPassword,
+      joinRoomId,
+      navigate,
+      setConnectionStatus,
+      setParticipants,
+      setRoom,
+      signalingClient,
+      user,
+    ],
   );
 
   const handleLogout = useCallback(() => {
@@ -197,6 +228,15 @@ export const HomePage = () => {
               <p style={{ margin: 0, color: 'var(--text-secondary, #a0a0a0)' }}>
                 Generate a new room for your session and share the ID with participants.
               </p>
+              <Input
+                label="Password"
+                name="create-password"
+                type="password"
+                value={createPassword}
+                onChange={(event) => setCreatePassword(event.target.value)}
+                placeholder="Set an optional room password"
+                disabled={isCreatingRoom}
+              />
               <Button onClick={handleCreateRoom} disabled={isCreatingRoom}>
                 {isCreatingRoom ? 'Creating…' : 'Create Room'}
               </Button>

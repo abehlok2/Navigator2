@@ -8,6 +8,7 @@ import {
   type SignalingRoomAckPayloads,
   type SignalingServerMessage,
 } from '../../types/signaling';
+import type { Participant } from '../../types/session';
 
 const SIGNALING_SERVER_URL = (() => {
   const rawUrl = import.meta.env.VITE_SIGNALING_SERVER_URL?.trim();
@@ -148,11 +149,11 @@ export class SignalingClient {
   public async joinRoom(
     roomId: string,
     password: string,
-  ): Promise<{ participantId: string }> {
+  ): Promise<{ participantId: string; participants: Participant[] }> {
     const response = await this.sendRequest('join-room', { roomId, password });
 
     this.currentRoomId = roomId;
-    return { participantId: response.participantId };
+    return { participantId: response.participantId, participants: response.participants };
   }
 
   public leaveRoom(): void {
