@@ -99,4 +99,12 @@ declare module '*.module.sass' {
   export default classes;
 }
 
+export type {
+  AuthResponse,
+  LoginPayload,
+  RegisterPayload,
+  User,
+  UserRole,
+} from './types/auth';
+
 export {};
