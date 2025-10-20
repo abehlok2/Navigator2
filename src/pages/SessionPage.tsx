@@ -1,11 +1,13 @@
 import type { CSSProperties } from 'react';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { ExplorerPanel, FacilitatorPanel, ListenerPanel, ParticipantList } from '../components/session';
 import { Button, Card } from '../components/ui';
 import { useSessionStore } from '../state/session';
+import { useSignalingClient } from '../features/webrtc';
 import type { ConnectionStatus, ParticipantRole } from '../types/session';
+import type { SignalingClientEventMap } from '../types/signaling';
 
 const pageStyles: CSSProperties = {
   minHeight: '100vh',
@@ -122,11 +124,83 @@ export const SessionPage = () => {
   const connectionStatus = useSessionStore((state) => state.connectionStatus);
   const userRole = useSessionStore((state) => state.userRole);
   const clearSession = useSessionStore((state) => state.clearSession);
+  const addParticipant = useSessionStore((state) => state.addParticipant);
+  const removeParticipant = useSessionStore((state) => state.removeParticipant);
+  const setParticipants = useSessionStore((state) => state.setParticipants);
+  const setConnectionStatus = useSessionStore((state) => state.setConnectionStatus);
+
+  const signalingClient = useSignalingClient();
+
+  useEffect(() => {
+    const handleRoomJoined = (payload: SignalingClientEventMap['roomJoined']) => {
+      setParticipants(payload.participants.map((participant) => ({ ...participant })));
+      setConnectionStatus('connected');
+    };
+
+    const handleParticipantJoined = ({
+      participantId,
+      username,
+      role,
+    }: SignalingClientEventMap['participantJoined']): void => {
+      addParticipant({ id: participantId, username, role, isOnline: true });
+    };
+
+    const handleParticipantLeft = ({ participantId }: SignalingClientEventMap['participantLeft']): void => {
+      removeParticipant(participantId);
+    };
+
+    const handleConnected = (): void => {
+      setConnectionStatus('connected');
+    };
+
+    const handleReconnecting = (_payload: SignalingClientEventMap['reconnecting']): void => {
+      setConnectionStatus('connecting');
+    };
+
+    const handleDisconnected = (_payload: SignalingClientEventMap['disconnected']): void => {
+      setConnectionStatus('disconnected');
+    };
+
+    const handleError = (_payload: SignalingClientEventMap['error']): void => {
+      setConnectionStatus('error');
+    };
+
+    signalingClient.on('roomJoined', handleRoomJoined);
+    signalingClient.on('participantJoined', handleParticipantJoined);
+    signalingClient.on('participantLeft', handleParticipantLeft);
+    signalingClient.on('connected', handleConnected);
+    signalingClient.on('reconnected', handleConnected);
+    signalingClient.on('reconnecting', handleReconnecting);
+    signalingClient.on('disconnected', handleDisconnected);
+    signalingClient.on('error', handleError);
+
+    return () => {
+      signalingClient.off('roomJoined', handleRoomJoined);
+      signalingClient.off('participantJoined', handleParticipantJoined);
+      signalingClient.off('participantLeft', handleParticipantLeft);
+      signalingClient.off('connected', handleConnected);
+      signalingClient.off('reconnected', handleConnected);
+      signalingClient.off('reconnecting', handleReconnecting);
+      signalingClient.off('disconnected', handleDisconnected);
+      signalingClient.off('error', handleError);
+    };
+  }, [
+    addParticipant,
+    removeParticipant,
+    setConnectionStatus,
+    setParticipants,
+    signalingClient,
+  ]);
 
   const handleLeaveRoom = useCallback(() => {
+    try {
+      signalingClient.leaveRoom();
+    } catch (error) {
+      console.warn('Unable to notify signaling server about leaving the room', error);
+    }
     clearSession();
     navigate('/home');
-  }, [clearSession, navigate]);
+  }, [clearSession, navigate, signalingClient]);
 
   const statusBadgeStyles = useMemo(() => {
     return {
