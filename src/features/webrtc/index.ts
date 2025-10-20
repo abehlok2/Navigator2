@@ -1,3 +1,1 @@
-export const TODOWebRTCFeature = () => {
-  // TODO: Implement WebRTC feature logic
-};
+export { SignalingClient } from './signaling';
