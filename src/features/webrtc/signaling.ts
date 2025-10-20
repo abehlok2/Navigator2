@@ -11,6 +11,7 @@ import {
 
 const SIGNALING_SERVER_URL = (() => {
   const rawUrl = import.meta.env.VITE_SIGNALING_SERVER_URL?.trim();
+  console.log(rawUrl);
   if (!rawUrl) {
     throw new Error('VITE_SIGNALING_SERVER_URL is not configured');
   }
