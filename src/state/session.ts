@@ -12,14 +12,18 @@ export interface SessionState {
   isConnected: boolean;
   userRole: ParticipantRole | null;
   connectionStatus: ConnectionStatus;
-  setRoom: (roomId: string, role: ParticipantRole) => void;
+  setRoom: (roomId: string, role: ParticipantRole, participants?: Participant[]) => void;
+  setParticipants: (participants: Participant[]) => void;
   addParticipant: (participant: Participant) => void;
   removeParticipant: (participantId: string) => void;
   setConnectionStatus: (status: ConnectionStatus) => void;
   clearSession: () => void;
 }
 
-const initialState: Omit<SessionState, 'setRoom' | 'addParticipant' | 'removeParticipant' | 'setConnectionStatus' | 'clearSession'>
+const initialState: Omit<
+  SessionState,
+  'setRoom' | 'setParticipants' | 'addParticipant' | 'removeParticipant' | 'setConnectionStatus' | 'clearSession'
+>
   = {
     roomId: null,
     participants: [],
@@ -30,14 +34,17 @@ const initialState: Omit<SessionState, 'setRoom' | 'addParticipant' | 'removePar
 
 export const useSessionStore = create<SessionState>()((set) => ({
   ...initialState,
-  setRoom(roomId, role) {
+  setRoom(roomId, role, participants = []) {
     set(() => ({
       roomId,
       userRole: role,
-      participants: [],
+      participants,
       isConnected: false,
       connectionStatus: 'connecting',
     }));
+  },
+  setParticipants(participants) {
+    set(() => ({ participants } satisfies Partial<SessionState>));
   },
   addParticipant(participant) {
     set((state) => {
