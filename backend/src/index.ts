@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import http, { IncomingMessage, ServerResponse } from 'http';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -6,7 +7,7 @@ import { URL } from 'url';
 import { createHealthHandler } from './health.js';
 import { sendJsonError } from './errors.js';
 import { UserStore } from './users.js';
-import { RoomStore, ParticipantState } from './rooms.js';
+import { RoomStore, ParticipantState, ParticipantRole, Room } from './rooms.js';
 import { signToken, verifyToken, TokenError } from './tokens.js';
 
 interface JsonRequest extends IncomingMessage {
@@ -25,20 +26,14 @@ interface VerifyResponse {
   };
 }
 
-interface ClientContext {
+interface SignalingContext {
   socket: WebSocket;
-  authenticated: boolean;
-  clientId?: string;
-  user?: ReturnType<UserStore['toPublicUser']>;
+  user: ReturnType<UserStore['toPublicUser']>;
+  participantId: string;
   roomId?: string;
+  username: string;
+  role: ParticipantRole;
 }
-
-type ClientMessage = {
-  type: string;
-  data?: any;
-};
-
-type AckData = Record<string, unknown> | undefined;
 
 const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 const SECRET = process.env.NAVIGATOR_SECRET ?? 'change-me';
@@ -260,143 +255,155 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-const sendMessage = (socket: WebSocket, type: string, data?: unknown) => {
-  const payload = JSON.stringify({ type, data });
-  socket.send(payload);
+type SignalingMessage<Type extends string, Payload> = {
+  type: Type;
+  payload: Payload;
+  requestId?: string;
 };
 
-const sendAck = (socket: WebSocket, type: string, data?: AckData) => {
-  sendMessage(socket, `${type}.ack`, data);
+const sendEnvelope = <Type extends string, Payload>(
+  socket: WebSocket,
+  message: SignalingMessage<Type, Payload>,
+) => {
+  socket.send(JSON.stringify(message));
 };
 
-const sendErrorMessage = (socket: WebSocket, code: string, message: string) => {
-  sendMessage(socket, 'error', { code, message });
+const sendErrorEnvelope = (
+  socket: WebSocket,
+  message: string,
+  options: { requestId?: string; code?: string } = {},
+) => {
+  const payload: { message: string; code?: string } = { message };
+
+  if (options.code) {
+    payload.code = options.code;
+  }
+
+  sendEnvelope(socket, {
+    type: 'error',
+    payload,
+    requestId: options.requestId,
+  });
 };
 
-const broadcast = (room: ReturnType<RoomStore['getRoom']>, type: string, data: unknown, exclude?: WebSocket) => {
-  if (!room) return;
-  for (const participant of room.participants.values()) {
+const deriveUsername = (user: ReturnType<UserStore['toPublicUser']>): string => {
+  if (user.displayName && user.displayName.trim()) {
+    return user.displayName.trim();
+  }
+
+  if (user.email && user.email.includes('@')) {
+    return user.email.split('@')[0] ?? user.email;
+  }
+
+  return `participant-${user.id.slice(0, 8)}`;
+};
+
+const broadcast = <Type extends string, Payload>(
+  room: Room,
+  message: SignalingMessage<Type, Payload>,
+  exclude?: WebSocket,
+) => {
+  room.participants.forEach((participant) => {
     if (participant.socket !== exclude) {
-      sendMessage(participant.socket, type, data);
+      sendEnvelope(participant.socket, message);
     }
-  }
+  });
 };
 
-const ensureAuthenticated = (ctx: ClientContext, socket: WebSocket) => {
-  if (!ctx.authenticated || !ctx.user || !ctx.clientId) {
-    sendErrorMessage(socket, 'AUTH_TOKEN_INVALID', 'Authentication required.');
-    throw new Error('Unauthenticated');
-  }
-};
-
-const handleConnectionInit = (ctx: ClientContext, message: ClientMessage) => {
-  const data = message.data ?? {};
-  const token = typeof data.token === 'string' ? data.token : undefined;
-  const clientId = typeof data.clientId === 'string' ? data.clientId : undefined;
-
-  if (!token || !clientId) {
-    sendMessage(ctx.socket, 'connection.error', {
-      code: 'AUTH_TOKEN_INVALID',
-      message: 'Authentication token missing.',
-    });
-    ctx.socket.close();
+const leaveCurrentRoom = (ctx: SignalingContext) => {
+  if (!ctx.roomId) {
     return;
   }
 
-  try {
-    const { user } = authenticateToken(token);
-    ctx.authenticated = true;
-    ctx.clientId = clientId;
-    ctx.user = userStore.toPublicUser(user);
-
-    sendMessage(ctx.socket, 'connection.init.ack', {
-      clientId,
-      user: ctx.user,
-    });
-  } catch (error) {
-    console.error('connection init error', error);
-    sendMessage(ctx.socket, 'connection.error', {
-      code: 'AUTH_TOKEN_INVALID',
-      message: 'Authentication token expired or invalid.',
-    });
-    ctx.socket.close();
-  }
-};
-
-const createParticipantState = (ctx: ClientContext, socket: WebSocket): ParticipantState => ({
-  clientId: ctx.clientId!,
-  user: ctx.user!,
-  socket,
-  metadata: {
-    id: ctx.clientId!,
-    displayName: ctx.user!.displayName,
-    isPublisher: true,
-  },
-});
-
-const handleRoomCreate = (ctx: ClientContext, message: ClientMessage) => {
-  const data = message.data ?? {};
-  const name = typeof data.name === 'string' ? data.name.trim() : '';
-  let maxParticipants = 6;
-  if (typeof data.maxParticipants === 'number' && Number.isInteger(data.maxParticipants)) {
-    maxParticipants = data.maxParticipants;
-  } else if (typeof data.maxParticipants === 'string') {
-    const parsed = Number.parseInt(data.maxParticipants, 10);
-    if (Number.isInteger(parsed)) {
-      maxParticipants = parsed;
-    }
-  }
-  maxParticipants = Math.max(1, Math.min(32, maxParticipants));
-
-  if (!name) {
-    sendErrorMessage(ctx.socket, 'ROOM_CREATION_FAILED', 'Room name is required.');
+  const room = roomStore.getRoom(ctx.roomId);
+  if (!room) {
+    ctx.roomId = undefined;
     return;
   }
 
+  const participant = room.participants.get(ctx.participantId);
+  if (!participant) {
+    ctx.roomId = undefined;
+    return;
+  }
+
+  roomStore.removeParticipant(room, ctx.participantId);
+  ctx.roomId = undefined;
+
+  const message: SignalingMessage<'participant-left', { participantId: string }> = {
+    type: 'participant-left',
+    payload: { participantId: participant.id },
+  };
+
+  broadcast(room, message);
+};
+
+const handleCreateRoom = (
+  ctx: SignalingContext,
+  message: SignalingMessage<'create-room', { password?: unknown }>,
+) => {
+  const password = typeof message.payload?.password === 'string' ? message.payload.password : '';
+
   try {
-    const room = roomStore.createRoom({
-      name,
-      maxParticipants,
-      ownerUserId: ctx.user!.id,
-    });
+    const room = roomStore.createRoom({ ownerUserId: ctx.user.id, password });
 
-    const participant = createParticipantState(ctx, ctx.socket);
-    roomStore.addParticipant(room, participant);
-    participant.roomId = room.id;
-    ctx.roomId = room.id;
+    const response: SignalingMessage<'room-created', { roomId: string }> = {
+      type: 'room-created',
+      payload: { roomId: room.id },
+      requestId: message.requestId,
+    };
 
-    sendAck(ctx.socket, 'room.create', {
-      roomId: room.id,
-      name: room.name,
-      maxParticipants: room.maxParticipants,
-    });
-
-    sendMessage(ctx.socket, 'participant.list', {
-      roomId: room.id,
-      participants: roomStore.listParticipants(room),
-    });
+    sendEnvelope(ctx.socket, response);
   } catch (error) {
     console.error('room create error', error);
-    sendErrorMessage(ctx.socket, 'ROOM_CREATION_FAILED', (error as Error).message);
+    sendErrorEnvelope(
+      ctx.socket,
+      error instanceof Error ? error.message : 'Unable to create room.',
+      { requestId: message.requestId, code: 'room_creation_failed' },
+    );
   }
 };
 
-const handleRoomJoin = (ctx: ClientContext, message: ClientMessage) => {
-  const data = message.data ?? {};
-  const roomId = typeof data.roomId === 'string' ? data.roomId : undefined;
+const createParticipantState = (
+  ctx: SignalingContext,
+  role: ParticipantRole,
+): ParticipantState => ({
+  id: ctx.participantId,
+  userId: ctx.user.id,
+  username: ctx.username,
+  role,
+  socket: ctx.socket,
+});
+
+const handleJoinRoom = (
+  ctx: SignalingContext,
+  message: SignalingMessage<'join-room', { roomId?: unknown; password?: unknown }>,
+) => {
+  const roomId = typeof message.payload?.roomId === 'string' ? message.payload.roomId : undefined;
+  const password = typeof message.payload?.password === 'string' ? message.payload.password : '';
+
   if (!roomId) {
-    sendErrorMessage(ctx.socket, 'ROOM_JOIN_FAILED', 'roomId is required.');
+    sendErrorEnvelope(ctx.socket, 'roomId is required.', {
+      requestId: message.requestId,
+      code: 'room_join_failed',
+    });
     return;
   }
 
   const room = roomStore.getRoom(roomId);
   if (!room) {
-    sendErrorMessage(ctx.socket, 'ROOM_JOIN_FAILED', 'Requested room was not found.');
+    sendErrorEnvelope(ctx.socket, 'Requested room was not found.', {
+      requestId: message.requestId,
+      code: 'room_join_failed',
+    });
     return;
   }
 
-  if (ctx.roomId && ctx.roomId === room.id) {
-    sendAck(ctx.socket, 'room.join', { roomId: room.id });
+  if (!roomStore.verifyPassword(room, password)) {
+    sendErrorEnvelope(ctx.socket, 'Invalid room password.', {
+      requestId: message.requestId,
+      code: 'room_join_failed',
+    });
     return;
   }
 
@@ -405,175 +412,228 @@ const handleRoomJoin = (ctx: ClientContext, message: ClientMessage) => {
   }
 
   try {
-    const participant: ParticipantState = {
-      clientId: ctx.clientId!,
-      user: ctx.user!,
-      socket: ctx.socket,
-      roomId: room.id,
-      metadata: {
-        id: ctx.clientId!,
-        displayName: ctx.user!.displayName,
-        isPublisher: false,
-      },
-    };
+    const existing = room.participants.get(ctx.participantId);
+    if (existing) {
+      ctx.roomId = room.id;
 
+      const response: SignalingMessage<'room-joined', { roomId: string; participantId: string; participants: ReturnType<RoomStore['listParticipants']> }> = {
+        type: 'room-joined',
+        payload: {
+          roomId: room.id,
+          participantId: existing.id,
+          participants: roomStore.listParticipants(room),
+        },
+        requestId: message.requestId,
+      };
+
+      sendEnvelope(ctx.socket, response);
+      return;
+    }
+
+    const role: ParticipantRole = room.ownerUserId === ctx.user.id ? 'facilitator' : 'explorer';
+    ctx.role = role;
+
+    const participant = createParticipantState(ctx, role);
     roomStore.addParticipant(room, participant);
     ctx.roomId = room.id;
 
-    sendMessage(ctx.socket, 'participant.list', {
-      roomId: room.id,
-      participants: roomStore.listParticipants(room),
-    });
-
-    broadcast(
-      room,
-      'room.participant_joined',
-      {
+    const response: SignalingMessage<'room-joined', { roomId: string; participantId: string; participants: ReturnType<RoomStore['listParticipants']> }> = {
+      type: 'room-joined',
+      payload: {
         roomId: room.id,
-        participant: participant.metadata,
+        participantId: participant.id,
+        participants: roomStore.listParticipants(room),
       },
-      undefined
-    );
+      requestId: message.requestId,
+    };
 
-    sendAck(ctx.socket, 'room.join', { roomId: room.id });
+    sendEnvelope(ctx.socket, response);
+
+    const joinedNotification: SignalingMessage<'participant-joined', { participantId: string; username: string; role: ParticipantRole }> = {
+      type: 'participant-joined',
+      payload: {
+        participantId: participant.id,
+        username: participant.username,
+        role: participant.role,
+      },
+    };
+
+    broadcast(room, joinedNotification, ctx.socket);
   } catch (error) {
     console.error('room join error', error);
-    sendErrorMessage(ctx.socket, 'ROOM_JOIN_FAILED', (error as Error).message);
+    sendErrorEnvelope(
+      ctx.socket,
+      error instanceof Error ? error.message : 'Unable to join room.',
+      { requestId: message.requestId, code: 'room_join_failed' },
+    );
   }
 };
 
-const leaveCurrentRoom = (ctx: ClientContext) => {
-  if (!ctx.roomId) {
-    return;
-  }
-
-  const room = roomStore.getRoom(ctx.roomId);
-  if (!room) {
-    ctx.roomId = undefined;
-    return;
-  }
-
-  const participant = room.participants.get(ctx.clientId!);
-  if (!participant) {
-    ctx.roomId = undefined;
-    return;
-  }
-
-  roomStore.deleteParticipant(room, ctx.clientId!);
-  ctx.roomId = undefined;
-
-  broadcast(room, 'room.participant_left', {
-    roomId: room.id,
-    participantId: ctx.clientId!,
-  });
-};
-
-const handleRoomLeave = (ctx: ClientContext) => {
-  if (!ctx.roomId) {
-    sendErrorMessage(ctx.socket, 'ROOM_LEAVE_FAILED', 'Not currently joined to a room.');
-    return;
-  }
-
-  const previousRoomId = ctx.roomId;
+const handleLeaveRoom = (ctx: SignalingContext) => {
   leaveCurrentRoom(ctx);
-  sendAck(ctx.socket, 'room.leave', { roomId: previousRoomId });
 };
 
-const handleSignaling = (ctx: ClientContext, message: ClientMessage) => {
+const forwardRtcMessage = (
+  ctx: SignalingContext,
+  message:
+    | SignalingMessage<'offer', { targetId?: unknown; description?: unknown }>
+    | SignalingMessage<'answer', { targetId?: unknown; description?: unknown }>
+    | SignalingMessage<'ice-candidate', { targetId?: unknown; candidate?: unknown }>,
+) => {
   if (!ctx.roomId) {
-    sendErrorMessage(ctx.socket, 'ROOM_JOIN_FAILED', 'Join a room before sending signaling messages.');
+    sendErrorEnvelope(ctx.socket, 'Join a room before sending signaling messages.', {
+      requestId: message.requestId,
+      code: 'signaling_not_allowed',
+    });
     return;
   }
 
   const room = roomStore.getRoom(ctx.roomId);
   if (!room) {
-    sendErrorMessage(ctx.socket, 'ROOM_JOIN_FAILED', 'Room no longer exists.');
+    ctx.roomId = undefined;
+    sendErrorEnvelope(ctx.socket, 'Room no longer exists.', {
+      requestId: message.requestId,
+      code: 'signaling_not_allowed',
+    });
     return;
   }
 
-  const data = message.data ?? {};
-  const targetId = typeof data.targetId === 'string' ? data.targetId : undefined;
+  const targetId = typeof message.payload?.targetId === 'string' ? message.payload.targetId : undefined;
   if (!targetId) {
-    sendErrorMessage(ctx.socket, 'SIGNALING_TARGET_OFFLINE', 'targetId is required.');
+    sendErrorEnvelope(ctx.socket, 'targetId is required.', {
+      requestId: message.requestId,
+      code: 'signaling_target_offline',
+    });
     return;
   }
 
   const target = room.participants.get(targetId);
   if (!target) {
-    sendErrorMessage(ctx.socket, 'SIGNALING_TARGET_OFFLINE', 'Target participant is offline.');
+    sendErrorEnvelope(ctx.socket, 'Target participant is offline.', {
+      requestId: message.requestId,
+      code: 'signaling_target_offline',
+    });
     return;
   }
 
-  sendMessage(target.socket, message.type, {
-    roomId: room.id,
-    targetId,
-    payload: data.payload,
-    senderId: ctx.clientId,
-  });
+  switch (message.type) {
+    case 'offer':
+    case 'answer': {
+      const description = message.payload?.description;
+      if (!description || typeof description !== 'object') {
+        sendErrorEnvelope(ctx.socket, 'Invalid session description.', {
+          requestId: message.requestId,
+          code: 'invalid_payload',
+        });
+        return;
+      }
 
-  sendAck(ctx.socket, message.type, { roomId: room.id, targetId });
+      sendEnvelope(target.socket, {
+        type: message.type,
+        payload: { from: ctx.participantId, description },
+      });
+      break;
+    }
+    case 'ice-candidate': {
+      const candidate = message.payload?.candidate;
+      if (!candidate || typeof candidate !== 'object') {
+        sendErrorEnvelope(ctx.socket, 'Invalid ICE candidate.', {
+          requestId: message.requestId,
+          code: 'invalid_payload',
+        });
+        return;
+      }
+
+      sendEnvelope(target.socket, {
+        type: 'ice-candidate',
+        payload: { from: ctx.participantId, candidate },
+      });
+      break;
+    }
+  }
 };
 
-const handleMessage = (ctx: ClientContext, raw: RawData) => {
-  let parsed: ClientMessage;
+const handleMessage = (ctx: SignalingContext, raw: RawData) => {
+  let parsed: SignalingMessage<string, Record<string, unknown>>;
+
   try {
     parsed = JSON.parse(raw.toString());
   } catch (error) {
     console.error('Invalid message received', error);
-    sendErrorMessage(ctx.socket, 'SERVER_ERROR', 'Unable to parse message.');
+    sendErrorEnvelope(ctx.socket, 'Unable to parse message.', { code: 'invalid_message' });
     return;
   }
 
-  if (!parsed.type) {
-    sendErrorMessage(ctx.socket, 'SERVER_ERROR', 'Missing message type.');
-    return;
-  }
-
-  if (!ctx.authenticated) {
-    if (parsed.type !== 'connection.init') {
-      sendMessage(ctx.socket, 'connection.error', {
-        code: 'AUTH_TOKEN_INVALID',
-        message: 'Authenticate before sending other messages.',
-      });
-      ctx.socket.close();
-      return;
-    }
-
-    return handleConnectionInit(ctx, parsed);
-  }
-
-  try {
-    ensureAuthenticated(ctx, ctx.socket);
-  } catch {
-    ctx.socket.close();
+  if (!parsed || typeof parsed !== 'object' || typeof parsed.type !== 'string') {
+    sendErrorEnvelope(ctx.socket, 'Missing message type.', { code: 'invalid_message' });
     return;
   }
 
   switch (parsed.type) {
-    case 'room.create':
-      handleRoomCreate(ctx, parsed);
+    case 'create-room':
+      handleCreateRoom(ctx, parsed as SignalingMessage<'create-room', { password?: unknown }>);
       break;
-    case 'room.join':
-      handleRoomJoin(ctx, parsed);
+    case 'join-room':
+      handleJoinRoom(
+        ctx,
+        parsed as SignalingMessage<'join-room', { roomId?: unknown; password?: unknown }>,
+      );
       break;
-    case 'room.leave':
-      handleRoomLeave(ctx);
+    case 'leave-room':
+      handleLeaveRoom(ctx);
       break;
-    case 'webrtc.offer':
-    case 'webrtc.answer':
-    case 'webrtc.ice':
-      handleSignaling(ctx, parsed);
+    case 'offer':
+    case 'answer':
+    case 'ice-candidate':
+      forwardRtcMessage(
+        ctx,
+        parsed as
+          | SignalingMessage<'offer', { targetId?: unknown; description?: unknown }>
+          | SignalingMessage<'answer', { targetId?: unknown; description?: unknown }>
+          | SignalingMessage<'ice-candidate', { targetId?: unknown; candidate?: unknown }>,
+      );
+      break;
+    case 'authenticate':
+      // Authentication is handled during the connection handshake. Accept the message silently.
       break;
     default:
-      sendErrorMessage(ctx.socket, 'SERVER_ERROR', `Unsupported message type: ${parsed.type}`);
+      sendErrorEnvelope(ctx.socket, `Unsupported message type: ${parsed.type}`, {
+        requestId: parsed.requestId,
+        code: 'invalid_message',
+      });
   }
 };
 
 const attachWebSocketServer = () => {
-  wss = new WebSocketServer({ server });
+  wss = new WebSocketServer({ server, path: '/signaling' });
 
-  wss.on('connection', (socket: WebSocket) => {
-    const context: ClientContext = { socket, authenticated: false };
+  wss.on('connection', (socket: WebSocket, request: IncomingMessage) => {
+    const requestUrl = request.url ? new URL(request.url, 'http://localhost') : null;
+    const token = requestUrl?.searchParams.get('token');
+
+    if (!token) {
+      socket.close(4401, 'Authentication token missing.');
+      return;
+    }
+
+    let publicUser: ReturnType<UserStore['toPublicUser']>;
+
+    try {
+      const { user } = authenticateToken(token);
+      publicUser = userStore.toPublicUser(user);
+    } catch (error) {
+      console.error('signaling authentication error', error);
+      socket.close(4401, 'Authentication failed.');
+      return;
+    }
+
+    const context: SignalingContext = {
+      socket,
+      user: publicUser,
+      participantId: crypto.randomUUID(),
+      username: deriveUsername(publicUser),
+      role: 'explorer',
+    };
 
     socket.on('message', (raw: RawData) => handleMessage(context, raw));
 
