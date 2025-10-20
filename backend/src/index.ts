@@ -1,5 +1,5 @@
 import http, { IncomingMessage, ServerResponse } from 'http';
-import { WebSocketServer, WebSocket } from 'ws';
+import { WebSocketServer, WebSocket, RawData } from 'ws';
 import { URL } from 'url';
 import { createHealthHandler } from './health.js';
 import { sendJsonError } from './errors.js';
@@ -512,7 +512,7 @@ const handleSignaling = (ctx: ClientContext, message: ClientMessage) => {
   sendAck(ctx.socket, message.type, { roomId: room.id, targetId });
 };
 
-const handleMessage = (ctx: ClientContext, raw: WebSocket.RawData) => {
+const handleMessage = (ctx: ClientContext, raw: RawData) => {
   let parsed: ClientMessage;
   try {
     parsed = JSON.parse(raw.toString());
@@ -570,16 +570,16 @@ const handleMessage = (ctx: ClientContext, raw: WebSocket.RawData) => {
 const attachWebSocketServer = () => {
   wss = new WebSocketServer({ server });
 
-  wss.on('connection', (socket) => {
+  wss.on('connection', (socket: WebSocket) => {
     const context: ClientContext = { socket, authenticated: false };
 
-    socket.on('message', (raw) => handleMessage(context, raw));
+    socket.on('message', (raw: RawData) => handleMessage(context, raw));
 
     socket.on('close', () => {
       leaveCurrentRoom(context);
     });
 
-    socket.on('error', (error) => {
+    socket.on('error', (error: Error) => {
       console.error('WebSocket error', error);
       leaveCurrentRoom(context);
     });

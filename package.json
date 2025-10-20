@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "backend": "npm --prefix backend run build && npm --prefix backend run start"
   },
   "dependencies": {
     "react": "^18.3.1",
