@@ -1,4 +1,6 @@
 import http, { IncomingMessage, ServerResponse } from 'http';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { WebSocketServer, WebSocket, RawData } from 'ws';
 import { URL } from 'url';
 import { createHealthHandler } from './health.js';
@@ -595,6 +597,10 @@ export const start = () =>
     console.log(`Navigator backend listening on port ${PORT}`);
   });
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+const entryUrl = process.argv[1]
+  ? pathToFileURL(path.resolve(process.argv[1])).href
+  : undefined;
+
+if (import.meta.url === entryUrl) {
   start();
 }
