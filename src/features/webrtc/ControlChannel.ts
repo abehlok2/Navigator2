@@ -9,57 +9,79 @@ import { isControlMessage } from '../../types/control-messages';
 /**
  * ControlChannel manages bidirectional control message communication
  * between session participants using WebRTC data channels.
+ * Supports multiple data channels for broadcasting (facilitator role).
  */
 export class ControlChannel {
-  private dataChannel: RTCDataChannel | null = null;
+  private dataChannels = new Map<string, RTCDataChannel>();
   private readonly eventHandlers = new Map<
     ControlMessageType,
     Set<ControlMessageHandler<any>>
   >();
-  private isOpen = false;
+  private openChannels = new Set<string>();
 
   /**
    * Creates a new ControlChannel instance.
    * The channel must be initialized with a data channel before use.
    */
   constructor() {
-    // Channel will be set via setDataChannel
+    // Channels will be added via setDataChannel
   }
 
   /**
    * Sets the underlying RTCDataChannel for this control channel.
    * Automatically sets up event listeners and connection state tracking.
+   * For facilitators, this can be called multiple times to add channels for each peer.
+   * For explorers/listeners, this is called once for the facilitator's channel.
+   *
+   * @param channel - The data channel to add
+   * @param channelId - Optional identifier for the channel (defaults to channel label + timestamp)
    */
-  public setDataChannel(channel: RTCDataChannel): void {
-    // Clean up existing channel if present
-    if (this.dataChannel) {
-      this.cleanup();
+  public setDataChannel(channel: RTCDataChannel, channelId?: string): void {
+    const id = channelId || `${channel.label}-${Date.now()}`;
+
+    // Remove existing channel with same ID if present
+    if (this.dataChannels.has(id)) {
+      this.removeDataChannel(id);
     }
 
-    this.dataChannel = channel;
-    this.setupDataChannelListeners();
+    this.dataChannels.set(id, channel);
+    this.setupDataChannelListeners(id, channel);
 
     // If channel is already open, mark as ready
     if (channel.readyState === 'open') {
-      this.isOpen = true;
+      this.openChannels.add(id);
       this.emit('channel:open', { type: 'channel:open', timestamp: Date.now() });
     }
   }
 
   /**
-   * Sends a control message through the data channel.
-   * @throws Error if the data channel is not open or not set
+   * Removes a data channel from this control channel.
+   */
+  private removeDataChannel(channelId: string): void {
+    const channel = this.dataChannels.get(channelId);
+    if (!channel) {
+      return;
+    }
+
+    this.cleanupChannel(channelId, channel);
+    this.dataChannels.delete(channelId);
+    this.openChannels.delete(channelId);
+  }
+
+  /**
+   * Sends a control message through all open data channels (broadcasts).
+   * @throws Error if no data channels are open
    */
   public send<T extends ControlMessageType>(
     type: T,
     data?: Omit<ControlMessageEventMap[T], 'type' | 'timestamp'>,
   ): void {
-    if (!this.dataChannel) {
+    if (this.dataChannels.size === 0) {
       throw new Error('Control channel not initialized. Call setDataChannel first.');
     }
 
-    if (!this.isOpen) {
-      throw new Error('Control channel is not open. Cannot send message.');
+    if (this.openChannels.size === 0) {
+      throw new Error('No open control channels. Cannot send message.');
     }
 
     const message: ControlMessage = {
@@ -68,11 +90,28 @@ export class ControlChannel {
       ...data,
     } as ControlMessage;
 
-    try {
-      this.dataChannel.send(JSON.stringify(message));
-    } catch (error) {
-      console.error(`Failed to send control message of type "${type}":`, error);
-      throw new Error(`Failed to send control message: ${error instanceof Error ? error.message : 'unknown error'}`);
+    const messageStr = JSON.stringify(message);
+    let sentCount = 0;
+    let lastError: Error | null = null;
+
+    // Broadcast to all open channels
+    for (const channelId of this.openChannels) {
+      const channel = this.dataChannels.get(channelId);
+      if (!channel || channel.readyState !== 'open') {
+        continue;
+      }
+
+      try {
+        channel.send(messageStr);
+        sentCount++;
+      } catch (error) {
+        console.error(`Failed to send control message of type "${type}" on channel ${channelId}:`, error);
+        lastError = error instanceof Error ? error : new Error('Unknown error');
+      }
+    }
+
+    if (sentCount === 0 && lastError) {
+      throw new Error(`Failed to send control message to any channel: ${lastError.message}`);
     }
   }
 
@@ -108,89 +147,113 @@ export class ControlChannel {
 
   /**
    * Checks if the control channel is ready to send messages.
+   * Returns true if at least one data channel is open.
    */
   public isReady(): boolean {
-    return this.isOpen && this.dataChannel !== null;
+    return this.openChannels.size > 0;
   }
 
   /**
-   * Gets the current state of the data channel.
+   * Gets the current state of the data channels.
+   * Returns 'open' if any channel is open, otherwise returns the most common state.
    */
   public getState(): RTCDataChannelState | 'not-initialized' {
-    return this.dataChannel?.readyState ?? 'not-initialized';
+    if (this.dataChannels.size === 0) {
+      return 'not-initialized';
+    }
+
+    // If any channel is open, return 'open'
+    if (this.openChannels.size > 0) {
+      return 'open';
+    }
+
+    // Otherwise, return the first channel's state
+    const firstChannel = this.dataChannels.values().next().value;
+    return firstChannel?.readyState ?? 'not-initialized';
   }
 
   /**
-   * Closes the control channel and cleans up resources.
+   * Closes all data channels and cleans up resources.
    */
   public close(): void {
-    this.cleanup();
-    if (this.dataChannel) {
-      this.dataChannel.close();
-      this.dataChannel = null;
+    for (const [channelId, channel] of this.dataChannels.entries()) {
+      this.cleanupChannel(channelId, channel);
+      channel.close();
     }
+    this.dataChannels.clear();
+    this.openChannels.clear();
   }
 
   /**
-   * Sets up event listeners on the data channel.
+   * Sets up event listeners on a data channel.
    */
-  private setupDataChannelListeners(): void {
-    if (!this.dataChannel) {
-      return;
-    }
+  private setupDataChannelListeners(channelId: string, channel: RTCDataChannel): void {
+    const handleOpen = () => this.handleChannelOpen(channelId);
+    const handleClose = () => this.handleChannelClose(channelId);
+    const handleError = (event: Event) => this.handleChannelError(channelId, event);
+    const handleMessage = (event: MessageEvent) => this.handleChannelMessage(event);
 
-    this.dataChannel.addEventListener('open', this.handleChannelOpen);
-    this.dataChannel.addEventListener('close', this.handleChannelClose);
-    this.dataChannel.addEventListener('error', this.handleChannelError);
-    this.dataChannel.addEventListener('message', this.handleChannelMessage);
+    channel.addEventListener('open', handleOpen);
+    channel.addEventListener('close', handleClose);
+    channel.addEventListener('error', handleError);
+    channel.addEventListener('message', handleMessage);
+
+    // Store the handlers for cleanup
+    (channel as any)._controlChannelHandlers = {
+      open: handleOpen,
+      close: handleClose,
+      error: handleError,
+      message: handleMessage,
+    };
   }
 
   /**
-   * Removes event listeners from the data channel.
+   * Removes event listeners from a data channel.
    */
-  private cleanup(): void {
-    if (!this.dataChannel) {
+  private cleanupChannel(channelId: string, channel: RTCDataChannel): void {
+    const handlers = (channel as any)._controlChannelHandlers;
+    if (!handlers) {
       return;
     }
 
-    this.dataChannel.removeEventListener('open', this.handleChannelOpen);
-    this.dataChannel.removeEventListener('close', this.handleChannelClose);
-    this.dataChannel.removeEventListener('error', this.handleChannelError);
-    this.dataChannel.removeEventListener('message', this.handleChannelMessage);
+    channel.removeEventListener('open', handlers.open);
+    channel.removeEventListener('close', handlers.close);
+    channel.removeEventListener('error', handlers.error);
+    channel.removeEventListener('message', handlers.message);
 
-    this.isOpen = false;
+    delete (channel as any)._controlChannelHandlers;
   }
 
   /**
    * Handles data channel open event.
    */
-  private readonly handleChannelOpen = (): void => {
-    this.isOpen = true;
-    console.log('Control channel opened');
+  private handleChannelOpen(channelId: string): void {
+    this.openChannels.add(channelId);
+    console.log(`Control channel opened: ${channelId} (${this.openChannels.size} total)`);
     this.emit('channel:open', { type: 'channel:open', timestamp: Date.now() });
-  };
+  }
 
   /**
    * Handles data channel close event.
    */
-  private readonly handleChannelClose = (): void => {
-    this.isOpen = false;
-    console.log('Control channel closed');
+  private handleChannelClose(channelId: string): void {
+    this.openChannels.delete(channelId);
+    console.log(`Control channel closed: ${channelId} (${this.openChannels.size} remaining)`);
     this.emit('channel:close', { type: 'channel:close', timestamp: Date.now() });
-  };
+  }
 
   /**
    * Handles data channel error event.
    */
-  private readonly handleChannelError = (event: Event): void => {
-    console.error('Control channel error:', event);
+  private handleChannelError(channelId: string, event: Event): void {
+    console.error(`Control channel error on ${channelId}:`, event);
     this.emit('channel:error', { type: 'channel:error', timestamp: Date.now() });
-  };
+  }
 
   /**
    * Handles incoming messages on the data channel.
    */
-  private readonly handleChannelMessage = (event: MessageEvent): void => {
+  private handleChannelMessage(event: MessageEvent): void {
     let message: unknown;
 
     try {
@@ -206,7 +269,7 @@ export class ControlChannel {
     }
 
     this.emit(message.type, message);
-  };
+  }
 
   /**
    * Emits an event to all registered handlers.
