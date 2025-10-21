@@ -213,7 +213,7 @@ export function getAudioLevel(stream: MediaStream): number {
     });
   }
 
-  analyser.getByteFrequencyData(dataArray as Uint8Array<ArrayBuffer>);
+  analyser.getByteFrequencyData(dataArray as unknown as Uint8Array<ArrayBuffer>);
 
   const sum = dataArray.reduce((accumulator, value) => accumulator + value, 0);
   const average = sum / dataArray.length;
@@ -242,7 +242,7 @@ export class AudioLevelMonitor {
   }
 
   getLevel(): number {
-    this.analyser.getByteFrequencyData(this.dataArray as Uint8Array<ArrayBuffer>);
+    this.analyser.getByteFrequencyData(this.dataArray as unknown as Uint8Array<ArrayBuffer>);
     const sum = this.dataArray.reduce((a, b) => a + b, 0);
     return (sum / this.dataArray.length / 255) * 100;
   }
