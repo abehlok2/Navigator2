@@ -82,13 +82,20 @@ export const getStoredUser = (): User | null => {
   }
 };
 
+const normalizeUserRole = (user: User): User => ({
+  ...user,
+  role: 'facilitator',
+});
+
 const setStoredAuth = (token: string, user: User): void => {
   if (!isBrowser) {
     return;
   }
 
+  const normalizedUser = normalizeUserRole(user);
+
   window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
-  window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+  window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(normalizedUser));
 };
 
 export const clearStoredAuth = (): void => {
@@ -156,8 +163,9 @@ export const login = async (email: string, password: string): Promise<AuthRespon
     includeAuth: false,
   });
 
-  setStoredAuth(result.token, result.user);
-  return result;
+  const normalizedUser = normalizeUserRole(result.user);
+  setStoredAuth(result.token, normalizedUser);
+  return { token: result.token, user: normalizedUser };
 };
 
 export const register = async (
@@ -173,8 +181,9 @@ export const register = async (
     includeAuth: false,
   });
 
-  setStoredAuth(result.token, result.user);
-  return result;
+  const normalizedUser = normalizeUserRole(result.user);
+  setStoredAuth(result.token, normalizedUser);
+  return { token: result.token, user: normalizedUser };
 };
 
 export const authStorageKeys = {

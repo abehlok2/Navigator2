@@ -397,12 +397,16 @@ const createParticipantState = (
   socket: ctx.socket,
 });
 
+const isNonFacilitatorRole = (value: unknown): value is Exclude<ParticipantRole, 'facilitator'> =>
+  value === 'explorer' || value === 'listener';
+
 const handleJoinRoom = (
   ctx: SignalingContext,
-  message: SignalingMessage<'join-room', { roomId?: unknown; password?: unknown }>,
+  message: SignalingMessage<'join-room', { roomId?: unknown; password?: unknown; role?: unknown }>,
 ) => {
   const roomId = typeof message.payload?.roomId === 'string' ? message.payload.roomId : undefined;
   const password = typeof message.payload?.password === 'string' ? message.payload.password : '';
+  const requestedRole = message.payload?.role;
 
   if (!roomId) {
     sendErrorEnvelope(ctx.socket, 'roomId is required.', {
@@ -452,7 +456,12 @@ const handleJoinRoom = (
       return;
     }
 
-    const role: ParticipantRole = room.ownerUserId === ctx.user.id ? 'facilitator' : 'explorer';
+    const role: ParticipantRole =
+      room.ownerUserId === ctx.user.id
+        ? 'facilitator'
+        : isNonFacilitatorRole(requestedRole)
+        ? requestedRole
+        : 'explorer';
     ctx.role = role;
 
     const participant = createParticipantState(ctx, role);
@@ -598,7 +607,10 @@ const handleMessage = (ctx: SignalingContext, raw: RawData) => {
     case 'join-room':
       handleJoinRoom(
         ctx,
-        parsed as SignalingMessage<'join-room', { roomId?: unknown; password?: unknown }>,
+        parsed as SignalingMessage<
+          'join-room',
+          { roomId?: unknown; password?: unknown; role?: unknown }
+        >,
       );
       break;
     case 'leave-room':
