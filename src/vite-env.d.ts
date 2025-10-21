@@ -1,6 +1,12 @@
 /// <reference types="vite/client" />
 
-import type { AudioAnalyserEntry as AudioAnalyserEntryType } from './features/audio/microphone';
+import type {
+  AudioAnalyserEntry as AudioAnalyserEntryType,
+  AudioLevelMonitor as AudioLevelMonitorClass,
+  MicrophoneConstraints as MicrophoneConstraintsType,
+  MicrophoneError as MicrophoneErrorClass,
+  MicrophoneErrorCode as MicrophoneErrorCodeType,
+} from './features/audio/microphone';
 import type {
   AudioPlayer as AudioPlayerClass,
   AudioPlayerEvent as AudioPlayerEventType,
@@ -48,6 +54,10 @@ import type {
 
 declare global {
   type AudioAnalyserEntry = AudioAnalyserEntryType;
+  type AudioLevelMonitor = AudioLevelMonitorClass;
+  type MicrophoneConstraints = MicrophoneConstraintsType;
+  type MicrophoneError = MicrophoneErrorClass;
+  type MicrophoneErrorCode = MicrophoneErrorCodeType;
   type AudioPlayer = AudioPlayerClass;
   type AudioPlayerEvent = AudioPlayerEventType;
   type SessionRecorder = SessionRecorderClass;
@@ -221,8 +231,12 @@ export type {
 
 export type {
   AudioAnalyserEntry,
+  AudioLevelMonitor,
   AudioPlayer,
   AudioPlayerEvent,
+  MicrophoneConstraints,
+  MicrophoneError,
+  MicrophoneErrorCode,
   SessionRecorder,
 } from './features/audio';
 
