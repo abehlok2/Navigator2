@@ -1,8 +1,7 @@
 import { ChangeEvent, useEffect, useRef, useState } from 'react';
-import { AudioPlayer } from '../../features/audio/player';
 
 export type BackgroundPlayerProps = {
-  onFileLoad?: (file: File) => void;
+  onFileLoad?: (file: File, audioElement: HTMLAudioElement) => void;
   onPlay?: () => void;
   onPause?: () => void;
   onStop?: () => void;
@@ -33,8 +32,15 @@ export const BackgroundPlayer = ({
   onVolumeChange,
   onError,
 }: BackgroundPlayerProps) => {
-  const playerRef = useRef<AudioPlayer | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
   const onStopRef = useRef(onStop);
+  const onFileLoadRef = useRef(onFileLoad);
+  const onPlayRef = useRef(onPlay);
+  const onPauseRef = useRef(onPause);
+  const onSeekRef = useRef(onSeek);
+  const onVolumeChangeRef = useRef(onVolumeChange);
+  const onErrorRef = useRef(onError);
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [currentFile, setCurrentFile] = useState<File | null>(null);
@@ -48,12 +54,38 @@ export const BackgroundPlayer = ({
   }, [onStop]);
 
   useEffect(() => {
-    const player = new AudioPlayer();
-    playerRef.current = player;
+    onFileLoadRef.current = onFileLoad;
+  }, [onFileLoad]);
+
+  useEffect(() => {
+    onPlayRef.current = onPlay;
+  }, [onPlay]);
+
+  useEffect(() => {
+    onPauseRef.current = onPause;
+  }, [onPause]);
+
+  useEffect(() => {
+    onSeekRef.current = onSeek;
+  }, [onSeek]);
+
+  useEffect(() => {
+    onVolumeChangeRef.current = onVolumeChange;
+  }, [onVolumeChange]);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
+
+  useEffect(() => {
+    const audio = new Audio();
+    audio.preload = 'metadata';
+    audioRef.current = audio;
 
     const handleTimeUpdate = () => {
-      setCurrentTime(player.getCurrentTime());
-      setDuration(player.getDuration());
+      setCurrentTime(audio.currentTime || 0);
+      const audioDuration = Number.isFinite(audio.duration) ? audio.duration : 0;
+      setDuration(audioDuration);
     };
 
     const handleEnded = () => {
@@ -62,24 +94,45 @@ export const BackgroundPlayer = ({
       onStopRef.current?.();
     };
 
-    player.on('timeupdate', handleTimeUpdate);
-    player.on('ended', handleEnded);
+    const handlePlayEvent = () => {
+      setIsPlaying(true);
+    };
+
+    const handlePauseEvent = () => {
+      setIsPlaying(false);
+    };
+
+    const handleLoadedMetadata = () => {
+      const audioDuration = Number.isFinite(audio.duration) ? audio.duration : 0;
+      setDuration(audioDuration);
+      setCurrentTime(audio.currentTime || 0);
+    };
+
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('play', handlePlayEvent);
+    audio.addEventListener('pause', handlePauseEvent);
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('durationchange', handleLoadedMetadata);
 
     return () => {
-      player.off('timeupdate', handleTimeUpdate);
-      player.off('ended', handleEnded);
-      player.destroy();
-      playerRef.current = null;
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('play', handlePlayEvent);
+      audio.removeEventListener('pause', handlePauseEvent);
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('durationchange', handleLoadedMetadata);
+
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
+
+      audio.pause();
+      audio.src = '';
+      audioRef.current = null;
     };
   }, []);
-
-  useEffect(() => {
-    const player = playerRef.current;
-    if (!player) {
-      return;
-    }
-    player.setVolume(volume);
-  }, [volume]);
 
   const handleFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -111,25 +164,56 @@ export const BackgroundPlayer = ({
   };
 
   const loadFile = async (file: File) => {
-    const player = playerRef.current;
-    if (!player) {
+    const audio = audioRef.current;
+    if (!audio) {
       return;
     }
 
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+
+    const url = URL.createObjectURL(file);
+    objectUrlRef.current = url;
+
     try {
-      await player.loadFile(file);
+      await new Promise<void>((resolve, reject) => {
+        const handleLoadedMetadata = () => {
+          cleanup();
+          resolve();
+        };
+
+        const handleError = (event: Event) => {
+          cleanup();
+          reject(event);
+        };
+
+        const cleanup = () => {
+          audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+          audio.removeEventListener('error', handleError);
+        };
+
+        audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+        audio.addEventListener('error', handleError);
+        audio.src = url;
+      });
+
+      audio.currentTime = 0;
+      audio.volume = volume;
       setCurrentFile(file);
-      setDuration(player.getDuration());
+      setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
       setCurrentTime(0);
       setIsPlaying(false);
-      player.setVolume(volume);
-      onFileLoad?.(file);
+
+      onFileLoadRef.current?.(file, audio);
     } catch (error) {
-      // eslint-disable-next-line no-console
       console.error(error);
-      if (onError) {
-        onError(error, 'load');
+      if (onErrorRef.current) {
+        onErrorRef.current(error, 'load');
       }
+      URL.revokeObjectURL(url);
+      objectUrlRef.current = null;
     }
   };
 
@@ -146,50 +230,47 @@ export const BackgroundPlayer = ({
   };
 
   const handlePlay = async () => {
-    const player = playerRef.current;
-    if (!player) {
+    const audio = audioRef.current;
+    if (!audio) {
       return;
     }
 
     try {
-      await player.play();
-      setIsPlaying(true);
-      onPlay?.();
+      await audio.play();
+      onPlayRef.current?.();
     } catch (error) {
-      // eslint-disable-next-line no-console
       console.error(error);
-      if (onError) {
-        onError(error, 'play');
+      if (onErrorRef.current) {
+        onErrorRef.current(error, 'play');
       }
     }
   };
 
   const handlePause = () => {
-    const player = playerRef.current;
-    if (!player) {
+    const audio = audioRef.current;
+    if (!audio) {
       return;
     }
 
-    player.pause();
-    setIsPlaying(false);
-    onPause?.();
+    audio.pause();
+    onPauseRef.current?.();
   };
 
   const handleStop = () => {
-    const player = playerRef.current;
-    if (!player) {
+    const audio = audioRef.current;
+    if (!audio) {
       return;
     }
 
-    player.stop();
-    setIsPlaying(false);
+    audio.pause();
+    audio.currentTime = 0;
     setCurrentTime(0);
-    onStop?.();
+    onStopRef.current?.();
   };
 
   const handleSeek = (event: ChangeEvent<HTMLInputElement>) => {
-    const player = playerRef.current;
-    if (!player) {
+    const audio = audioRef.current;
+    if (!audio) {
       return;
     }
 
@@ -198,14 +279,19 @@ export const BackgroundPlayer = ({
       return;
     }
 
-    player.seek(value);
-    setCurrentTime(value);
-    onSeek?.(value);
+    const durationLimit = Number.isFinite(audio.duration) ? audio.duration : undefined;
+    if (typeof durationLimit === 'number') {
+      audio.currentTime = Math.min(Math.max(value, 0), durationLimit);
+    } else {
+      audio.currentTime = Math.max(value, 0);
+    }
+    setCurrentTime(audio.currentTime);
+    onSeekRef.current?.(audio.currentTime);
   };
 
   const handleVolumeChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const player = playerRef.current;
-    if (!player) {
+    const audio = audioRef.current;
+    if (!audio) {
       return;
     }
 
@@ -215,9 +301,18 @@ export const BackgroundPlayer = ({
     }
 
     setVolume(value);
-    player.setVolume(value);
-    onVolumeChange?.(value);
+    audio.volume = Math.min(Math.max(value, 0), 1);
+    onVolumeChangeRef.current?.(audio.volume);
   };
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) {
+      return;
+    }
+
+    audio.volume = Math.min(Math.max(volume, 0), 1);
+  }, [volume]);
 
   return (
     <div className="background-player">
