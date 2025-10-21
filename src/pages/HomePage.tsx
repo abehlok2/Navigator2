@@ -212,7 +212,13 @@ export const HomePage = () => {
           });
         }
 
-        setRoom(trimmedRoomId, actualRole, normalizedParticipants);
+        setRoom({
+          roomId: trimmedRoomId,
+          role: actualRole,
+          userId: participantId,
+          password: trimmedPassword ? trimmedPassword : null,
+          participants: normalizedParticipants,
+        });
         setParticipants(normalizedParticipants);
         setConnectionStatus('connected');
 

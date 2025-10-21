@@ -8,11 +8,19 @@ import type {
 
 export interface SessionState {
   roomId: string | null;
+  userId: string | null;
   participants: Participant[];
   isConnected: boolean;
   userRole: ParticipantRole | null;
+  roomPassword: string | null;
   connectionStatus: ConnectionStatus;
-  setRoom: (roomId: string, role: ParticipantRole, participants?: Participant[]) => void;
+  setRoom: (params: {
+    roomId: string;
+    role: ParticipantRole;
+    userId: string;
+    password: string | null;
+    participants?: Participant[];
+  }) => void;
   setParticipants: (participants: Participant[]) => void;
   addParticipant: (participant: Participant) => void;
   removeParticipant: (participantId: string) => void;
@@ -26,18 +34,22 @@ const initialState: Omit<
 >
   = {
     roomId: null,
+    userId: null,
     participants: [],
     isConnected: false,
     userRole: null,
+    roomPassword: null,
     connectionStatus: 'disconnected',
   };
 
 export const useSessionStore = create<SessionState>()((set) => ({
   ...initialState,
-  setRoom(roomId, role, participants = []) {
+  setRoom({ roomId, role, userId, password, participants = [] }) {
     set(() => ({
       roomId,
       userRole: role,
+      userId,
+      roomPassword: password,
       participants,
       isConnected: false,
       connectionStatus: 'connecting',
