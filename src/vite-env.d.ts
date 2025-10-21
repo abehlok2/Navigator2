@@ -19,6 +19,12 @@ import type {
 } from './components/session/SessionNotes';
 import type { ControlChannel as ControlChannelClass } from './features/webrtc/ControlChannel';
 import type {
+  ConnectionMonitor as ConnectionMonitorClass,
+  ConnectionStats as ConnectionStatsType,
+  ConnectionQuality as ConnectionQualityType,
+} from './features/webrtc/monitor';
+import type { ConnectionQualityProps as ConnectionQualityPropsType } from './components/session/ConnectionQuality';
+import type {
   ControlMessage as ControlMessageType,
   ControlMessageType as ControlMessageTypeEnum,
   ControlMessageHandler as ControlMessageHandlerType,
@@ -48,6 +54,10 @@ declare global {
   type SessionNote = SessionNoteType;
   type SessionNotesProps = SessionNotesPropsType;
   type ControlChannel = ControlChannelClass;
+  type ConnectionMonitor = ConnectionMonitorClass;
+  type ConnectionStats = ConnectionStatsType;
+  type ConnectionQuality = ConnectionQualityType;
+  type ConnectionQualityProps = ConnectionQualityPropsType;
   type ControlMessage = ControlMessageType;
   type ControlMessageTypeEnum = ControlMessageTypeEnum;
   type ControlMessageHandler<T extends ControlMessageTypeEnum = ControlMessageTypeEnum> = ControlMessageHandlerType<T>;
@@ -216,6 +226,12 @@ export type {
 export type { FacilitatorPlaybackState } from './components/session/FacilitatorPanel';
 export type { SessionNote, SessionNotesProps } from './components/session/SessionNotes';
 export type { ControlChannel } from './features/webrtc/ControlChannel';
+export type {
+  ConnectionMonitor,
+  ConnectionStats,
+  ConnectionQuality,
+} from './features/webrtc/monitor';
+export type { ConnectionQualityProps } from './components/session/ConnectionQuality';
 export type {
   ControlMessage,
   ControlMessageType,
