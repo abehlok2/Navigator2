@@ -23,16 +23,14 @@ import type { ControlChannel } from '../../features/webrtc/ControlChannel';
 import type { SessionError } from '../../features/webrtc/errors';
 import { createSessionError } from '../../features/webrtc/errors';
 import { addAudioTrack, replaceAudioTrack } from '../../features/webrtc/connection';
+import type { PeerConnectionManager } from '../../features/webrtc/peerManager';
 
 export type FacilitatorPlaybackState = 'playing' | 'paused' | 'stopped';
 
 export interface FacilitatorPanelProps {
   controlChannel: ControlChannel | null;
+  peerManager: PeerConnectionManager | null;
 }
-
-type NavigatorWindow = Window & {
-  navigatorPeerConnection?: RTCPeerConnection;
-};
 
 const panelStyles: CSSProperties = {
   display: 'flex',
@@ -78,7 +76,7 @@ const toTitleCase = (value: string): string => {
   return value.charAt(0).toUpperCase() + value.slice(1);
 };
 
-export const FacilitatorPanel = ({ controlChannel }: FacilitatorPanelProps) => {
+export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPanelProps) => {
   const roomId = useSessionStore((state) => state.roomId);
   const participants = useSessionStore((state) => state.participants);
   const connectionStatus = useSessionStore((state) => state.connectionStatus);
@@ -102,32 +100,64 @@ export const FacilitatorPanel = ({ controlChannel }: FacilitatorPanelProps) => {
   const levelAnimationRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const progressIntervalRef = useRef<number | null>(null);
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-  const audioSenderRef = useRef<RTCRtpSender | null>(null);
+  const audioSendersRef = useRef<Map<string, RTCRtpSender>>(new Map());
   const lastProgressSecondRef = useRef<number | null>(null);
 
-  const detachAudioSender = useCallback(async () => {
-    const sender = audioSenderRef.current;
-    if (!sender) {
-      return;
-    }
+  // Broadcast audio track to all peer connections
+  const broadcastAudioTrack = useCallback(
+    async (mixedStream: MediaStream) => {
+      if (!peerManager) {
+        console.warn('No peer manager available to broadcast audio');
+        return;
+      }
 
-    try {
-      await sender.replaceTrack(null);
-    } catch (error) {
-      console.error('Failed to clear facilitator audio track:', error);
-    }
+      const participantIds = peerManager.getParticipantIds();
+      const senders = audioSendersRef.current;
 
-    const peerConnection = peerConnectionRef.current;
-    if (peerConnection) {
+      for (const participantId of participantIds) {
+        const pc = peerManager.getConnection(participantId);
+        if (!pc) {
+          continue;
+        }
+
+        try {
+          const existingSender = senders.get(participantId);
+
+          if (existingSender) {
+            // Replace track on existing sender
+            await replaceAudioTrack(existingSender, mixedStream);
+            console.log(`[FacilitatorPanel] Replaced audio track for ${participantId}`);
+          } else {
+            // Add new track and store sender
+            const sender = await addAudioTrack(pc, mixedStream);
+            senders.set(participantId, sender);
+            console.log(`[FacilitatorPanel] Added audio track for ${participantId}`);
+
+            // Create offer and send via signaling
+            // Note: The negotiationNeeded event in SessionPage will handle this
+          }
+        } catch (error) {
+          console.error(`[FacilitatorPanel] Failed to broadcast audio to ${participantId}:`, error);
+        }
+      }
+    },
+    [peerManager],
+  );
+
+  // Remove audio tracks from all peer connections
+  const detachAudioSenders = useCallback(async () => {
+    const senders = audioSendersRef.current;
+
+    for (const [participantId, sender] of senders.entries()) {
       try {
-        peerConnection.removeTrack(sender);
+        await sender.replaceTrack(null);
+        console.log(`[FacilitatorPanel] Cleared audio track for ${participantId}`);
       } catch (error) {
-        console.error('Failed to remove facilitator audio track sender:', error);
+        console.error(`[FacilitatorPanel] Failed to clear audio track for ${participantId}:`, error);
       }
     }
 
-    audioSenderRef.current = null;
+    senders.clear();
   }, []);
 
   const sessionOverview = useMemo(
@@ -239,27 +269,11 @@ export const FacilitatorPanel = ({ controlChannel }: FacilitatorPanelProps) => {
         if (mixer) {
           try {
             mixer.connectMicrophone(stream);
+            // Broadcast the updated mixed stream to all peer connections
+            const mixedStream = mixer.getMixedStream();
+            void broadcastAudioTrack(mixedStream);
           } catch (error) {
             console.error('Unable to connect microphone to mixer:', error);
-          }
-        }
-
-        const peerConnection = peerConnectionRef.current;
-        if (mixer && peerConnection) {
-          const mixedStream = mixer.getMixedStream();
-
-          if (audioSenderRef.current) {
-            void replaceAudioTrack(audioSenderRef.current, mixedStream).catch((error) => {
-              console.error('Failed to replace facilitator audio track:', error);
-            });
-          } else {
-            void addAudioTrack(peerConnection, mixedStream)
-              .then((sender) => {
-                audioSenderRef.current = sender;
-              })
-              .catch((error) => {
-                console.error('Failed to add facilitator audio track:', error);
-              });
           }
         }
       } else {
@@ -271,10 +285,18 @@ export const FacilitatorPanel = ({ controlChannel }: FacilitatorPanelProps) => {
         setMicrophoneStream(null);
         stopLevelMonitoring();
         setAudioLevels({ microphone: 0 });
-        void detachAudioSender();
+
+        // If background audio is also not playing, detach all audio senders
+        // Otherwise, update with the background-only stream
+        if (mixer && audioPlayer && playbackState === 'playing') {
+          const mixedStream = mixer.getMixedStream();
+          void broadcastAudioTrack(mixedStream);
+        } else {
+          void detachAudioSenders();
+        }
       }
     },
-    [detachAudioSender, mixer, startLevelMonitoring, stopLevelMonitoring],
+    [broadcastAudioTrack, detachAudioSenders, mixer, audioPlayer, playbackState, startLevelMonitoring, stopLevelMonitoring],
   );
 
   const handleRecordingStart = useCallback(async () => {
@@ -406,10 +428,16 @@ export const FacilitatorPanel = ({ controlChannel }: FacilitatorPanelProps) => {
     setSessionError(null);
     startProgressUpdates();
 
+    // Broadcast mixed stream when background audio starts playing
+    if (mixer) {
+      const mixedStream = mixer.getMixedStream();
+      void broadcastAudioTrack(mixedStream);
+    }
+
     sendControlMessage('audio:play', {
       fileName: currentFile?.name,
     });
-  }, [currentFile, sendControlMessage, startProgressUpdates]);
+  }, [broadcastAudioTrack, currentFile, mixer, sendControlMessage, startProgressUpdates]);
 
   const handlePause = useCallback(() => {
     const currentTime = audioPlayer?.currentTime ?? playbackPosition;
@@ -431,8 +459,17 @@ export const FacilitatorPanel = ({ controlChannel }: FacilitatorPanelProps) => {
       audioPlayer.currentTime = 0;
     }
 
+    // If microphone is also not active, detach all audio senders
+    // Otherwise, keep broadcasting microphone-only stream
+    if (mixer && isMicrophoneActive) {
+      const mixedStream = mixer.getMixedStream();
+      void broadcastAudioTrack(mixedStream);
+    } else {
+      void detachAudioSenders();
+    }
+
     sendControlMessage('audio:stop', {});
-  }, [audioPlayer, sendControlMessage, stopProgressUpdates]);
+  }, [audioPlayer, broadcastAudioTrack, detachAudioSenders, isMicrophoneActive, mixer, sendControlMessage, stopProgressUpdates]);
 
   const handleSeek = useCallback(
     (seconds: number) => {
@@ -481,13 +518,6 @@ export const FacilitatorPanel = ({ controlChannel }: FacilitatorPanelProps) => {
     setRecorder(newRecorder);
     recorderRef.current = newRecorder;
 
-    if (typeof window !== 'undefined') {
-      const maybePeerConnection = (window as NavigatorWindow).navigatorPeerConnection;
-      if (maybePeerConnection) {
-        peerConnectionRef.current = maybePeerConnection;
-      }
-    }
-
     return () => {
       stopLevelMonitoring();
       stopProgressUpdates();
@@ -498,7 +528,7 @@ export const FacilitatorPanel = ({ controlChannel }: FacilitatorPanelProps) => {
         streamRef.current = null;
       }
 
-      void detachAudioSender();
+      void detachAudioSenders();
 
       newMixer.disconnect();
 
@@ -510,7 +540,7 @@ export const FacilitatorPanel = ({ controlChannel }: FacilitatorPanelProps) => {
       }
       recorderRef.current = null;
     };
-  }, [detachAudioSender, stopLevelMonitoring, stopProgressUpdates]);
+  }, [detachAudioSenders, stopLevelMonitoring, stopProgressUpdates]);
 
   useEffect(() => {
     const activeStream = microphoneStream;
@@ -523,7 +553,11 @@ export const FacilitatorPanel = ({ controlChannel }: FacilitatorPanelProps) => {
       streamRef.current = null;
       setMicrophoneStream(null);
       stopLevelMonitoring();
-      void detachAudioSender();
+
+      // If background audio is also not playing, detach all audio senders
+      if (playbackState !== 'playing') {
+        void detachAudioSenders();
+      }
     };
 
     activeStream.getTracks().forEach((track) => {
@@ -535,7 +569,7 @@ export const FacilitatorPanel = ({ controlChannel }: FacilitatorPanelProps) => {
         track.removeEventListener('ended', handleTrackEnded);
       });
     };
-  }, [detachAudioSender, microphoneStream, stopLevelMonitoring]);
+  }, [detachAudioSenders, microphoneStream, playbackState, stopLevelMonitoring]);
 
   useEffect(() => {
     return () => {

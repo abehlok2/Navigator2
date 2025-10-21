@@ -11,6 +11,7 @@ import type { ConnectionStatus, ParticipantRole } from '../types/session';
 import type { SignalingClientEventMap } from '../types/signaling';
 import type { SessionError } from '../features/webrtc/errors';
 import { createSessionError, handleConnectionError } from '../features/webrtc/errors';
+import { ExplorerAudioMixer, ListenerAudioMixer } from '../features/audio';
 
 const pageStyles: CSSProperties = {
   minHeight: '100vh',
@@ -80,10 +81,14 @@ const connectionStatusTextColors: Record<ConnectionStatus, string> = {
   error: 'var(--text-primary, #ffffff)',
 };
 
-const getRolePanel = (role: ParticipantRole | null, controlChannel: ControlChannel | null) => {
+const getRolePanel = (
+  role: ParticipantRole | null,
+  controlChannel: ControlChannel | null,
+  peerManager: PeerConnectionManager | null,
+) => {
   switch (role) {
     case 'facilitator':
-      return <FacilitatorPanel controlChannel={controlChannel} />;
+      return <FacilitatorPanel controlChannel={controlChannel} peerManager={peerManager} />;
     case 'explorer':
       return <ExplorerPanel controlChannel={controlChannel} />;
     case 'listener':
@@ -146,6 +151,35 @@ export const SessionPage = () => {
   // Peer connection manager
   const peerManagerRef = useRef<PeerConnectionManager | null>(null);
 
+  // Audio mixers for receiving facilitator audio (explorer/listener roles)
+  const audioMixerRef = useRef<ExplorerAudioMixer | ListenerAudioMixer | null>(null);
+
+  // Initialize audio mixer for explorer/listener roles
+  useEffect(() => {
+    if (!userRole || userRole === 'facilitator') {
+      return;
+    }
+
+    if (!audioMixerRef.current) {
+      console.log(`[SessionPage] Initializing audio mixer for ${userRole}`);
+
+      if (userRole === 'explorer') {
+        audioMixerRef.current = new ExplorerAudioMixer();
+      } else if (userRole === 'listener') {
+        audioMixerRef.current = new ListenerAudioMixer();
+      }
+    }
+
+    return () => {
+      // Cleanup mixer on unmount or role change
+      if (audioMixerRef.current) {
+        console.log('[SessionPage] Cleaning up audio mixer');
+        audioMixerRef.current.disconnect();
+        audioMixerRef.current = null;
+      }
+    };
+  }, [userRole]);
+
   // Initialize peer connection manager after signaling connects
   useEffect(() => {
     if (connectionStatus === 'connected' && !peerManagerRef.current) {
@@ -177,7 +211,24 @@ export const SessionPage = () => {
       // Listen for remote tracks
       manager.on('track', ({ participantId, track, streams }) => {
         console.log(`[SessionPage] Received ${track.kind} track from ${participantId}`, streams);
-        // TODO: Handle remote audio/video tracks
+
+        // Handle audio tracks from facilitator
+        if (track.kind === 'audio' && streams.length > 0) {
+          const stream = streams[0];
+          const mixer = audioMixerRef.current;
+
+          if (mixer && userRole !== 'facilitator') {
+            console.log(`[SessionPage] Routing facilitator audio to ${userRole} mixer`);
+
+            if (mixer instanceof ExplorerAudioMixer) {
+              // Explorer mixer connects facilitator stream
+              mixer.connectFacilitatorStream(stream);
+            } else if (mixer instanceof ListenerAudioMixer) {
+              // Listener mixer adds facilitator as an audio source
+              mixer.addAudioSource(participantId, stream, 'Facilitator');
+            }
+          }
+        }
       });
 
       // Listen for data channels
@@ -475,7 +526,10 @@ export const SessionPage = () => {
     } satisfies CSSProperties;
   }, [connectionStatus]);
 
-  const rolePanel = useMemo(() => getRolePanel(userRole, controlChannel), [userRole, controlChannel]);
+  const rolePanel = useMemo(
+    () => getRolePanel(userRole, controlChannel, peerManagerRef.current),
+    [userRole, controlChannel],
+  );
 
   return (
     <main style={pageStyles}>
