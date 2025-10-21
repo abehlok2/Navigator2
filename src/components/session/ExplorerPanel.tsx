@@ -8,6 +8,7 @@ import { MicrophoneControl } from '../audio/MicrophoneControl';
 import { AudioLevelDisplay } from '../audio/AudioLevelDisplay';
 import { BackgroundAudioStatus } from '../audio/BackgroundAudioStatus';
 import { useSessionStore } from '../../state/session';
+import type { ControlChannel } from '../../features/webrtc/ControlChannel';
 
 const containerStyles: CSSProperties = {
   display: 'flex',
@@ -37,7 +38,11 @@ const cardContentStyles: CSSProperties = {
   gap: '1.25rem',
 };
 
-export const ExplorerPanel = () => {
+export interface ExplorerPanelProps {
+  controlChannel: ControlChannel | null;
+}
+
+export const ExplorerPanel = ({ controlChannel }: ExplorerPanelProps) => {
   const roomId = useSessionStore((state) => state.roomId);
   const participants = useSessionStore((state) => state.participants);
   const connectionStatus = useSessionStore((state) => state.connectionStatus);
@@ -49,12 +54,13 @@ export const ExplorerPanel = () => {
   // Audio level state (incoming from facilitator)
   const [facilitatorAudioLevel, setFacilitatorAudioLevel] = useState(0);
 
-  // Background audio state (synced from facilitator - placeholder for now)
+  // Background audio state (synced from facilitator via control messages)
   const [backgroundAudioState, setBackgroundAudioState] = useState({
     isPlaying: false,
     fileName: undefined as string | undefined,
     currentTime: 0,
     duration: 0,
+    volume: 1,
   });
 
   // Microphone toggle handler
@@ -90,18 +96,85 @@ export const ExplorerPanel = () => {
     return () => clearInterval(interval);
   }, [connectionStatus]);
 
-  // Placeholder: Background audio sync
-  // TODO: Replace with actual signaling from facilitator
+  // Listen for control messages from facilitator
   useEffect(() => {
-    // In production, this would listen to signaling messages from facilitator
-    // For now, we'll just initialize with empty state
-    setBackgroundAudioState({
-      isPlaying: false,
-      fileName: undefined,
-      currentTime: 0,
-      duration: 0,
-    });
-  }, []);
+    if (!controlChannel) {
+      return;
+    }
+
+    // Handle audio:play messages
+    const handleAudioPlay = (message: import('../../types/control-messages').AudioPlayMessage) => {
+      setBackgroundAudioState((prev) => ({
+        ...prev,
+        isPlaying: true,
+        fileName: message.fileName ?? prev.fileName,
+      }));
+    };
+
+    // Handle audio:pause messages
+    const handleAudioPause = (message: import('../../types/control-messages').AudioPauseMessage) => {
+      setBackgroundAudioState((prev) => ({
+        ...prev,
+        isPlaying: false,
+        currentTime: message.currentTime ?? prev.currentTime,
+      }));
+    };
+
+    // Handle audio:stop messages
+    const handleAudioStop = () => {
+      setBackgroundAudioState((prev) => ({
+        ...prev,
+        isPlaying: false,
+        currentTime: 0,
+      }));
+    };
+
+    // Handle audio:progress messages
+    const handleAudioProgress = (message: import('../../types/control-messages').AudioProgressMessage) => {
+      setBackgroundAudioState((prev) => ({
+        ...prev,
+        currentTime: message.currentTime,
+        duration: message.duration,
+      }));
+    };
+
+    // Handle audio:volume messages
+    const handleAudioVolume = (message: import('../../types/control-messages').AudioVolumeMessage) => {
+      setBackgroundAudioState((prev) => ({
+        ...prev,
+        volume: message.volume,
+      }));
+    };
+
+    // Handle audio:file-loaded messages
+    const handleAudioFileLoaded = (message: import('../../types/control-messages').AudioFileLoadedMessage) => {
+      setBackgroundAudioState((prev) => ({
+        ...prev,
+        fileName: message.fileName,
+        duration: message.duration,
+        currentTime: 0,
+        isPlaying: false,
+      }));
+    };
+
+    // Register event handlers
+    controlChannel.on('audio:play', handleAudioPlay);
+    controlChannel.on('audio:pause', handleAudioPause);
+    controlChannel.on('audio:stop', handleAudioStop);
+    controlChannel.on('audio:progress', handleAudioProgress);
+    controlChannel.on('audio:volume', handleAudioVolume);
+    controlChannel.on('audio:file-loaded', handleAudioFileLoaded);
+
+    // Cleanup handlers on unmount
+    return () => {
+      controlChannel.off('audio:play', handleAudioPlay);
+      controlChannel.off('audio:pause', handleAudioPause);
+      controlChannel.off('audio:stop', handleAudioStop);
+      controlChannel.off('audio:progress', handleAudioProgress);
+      controlChannel.off('audio:volume', handleAudioVolume);
+      controlChannel.off('audio:file-loaded', handleAudioFileLoaded);
+    };
+  }, [controlChannel]);
 
   // Get session overview data
   const sessionOverview = {
