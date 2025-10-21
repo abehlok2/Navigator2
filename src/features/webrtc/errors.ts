@@ -7,7 +7,8 @@ export type SessionError =
   | { type: 'microphone-denied'; message: string }
   | { type: 'peer-disconnected'; participantName: string }
   | { type: 'audio-load-failed'; filename: string }
-  | { type: 'recording-failed'; reason: string };
+  | { type: 'recording-failed'; reason: string }
+  | { type: 'webrtc-failed'; participantId: string; message: string };
 
 export type ErrorSeverity = 'error' | 'warning';
 
@@ -94,6 +95,7 @@ export function getErrorSeverity(error: SessionError): ErrorSeverity {
     case 'audio-load-failed':
       return 'warning';
     case 'recording-failed':
+    case 'webrtc-failed':
       return 'error';
     default:
       return 'error';
@@ -115,6 +117,8 @@ export function canRetryError(error: SessionError): boolean {
       return true;
     case 'recording-failed':
       return true;
+    case 'webrtc-failed':
+      return false;
     default:
       return false;
   }
@@ -134,6 +138,8 @@ export function canDismissError(error: SessionError): boolean {
     case 'audio-load-failed':
       return true;
     case 'recording-failed':
+      return true;
+    case 'webrtc-failed':
       return true;
     default:
       return true;
@@ -155,6 +161,8 @@ export function getErrorMessage(error: SessionError): string {
       return `Failed to load ${error.filename}. Please ensure the file is a valid audio format (MP3, WAV, OGG).`;
     case 'recording-failed':
       return `Recording failed: ${error.reason}`;
+    case 'webrtc-failed':
+      return error.message;
     default:
       return 'An unexpected error occurred.';
   }
@@ -171,6 +179,8 @@ export function getErrorHelpText(error: SessionError): string | undefined {
       return 'Check your internet connection and try again. If the problem persists, try refreshing the page.';
     case 'audio-load-failed':
       return 'Supported formats: MP3, WAV, OGG, AAC. Maximum file size: 50MB.';
+    case 'webrtc-failed':
+      return 'There was a problem establishing a peer-to-peer connection. This may be due to network restrictions or firewall settings.';
     default:
       return undefined;
   }

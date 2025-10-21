@@ -19,3 +19,5 @@ export type {
   ConnectionType,
   ManagedPeerConnection,
 } from './connection';
+export { PeerConnectionManager } from './peerManager';
+export type { PeerConnectionState, PeerManagerEvents } from './peerManager';

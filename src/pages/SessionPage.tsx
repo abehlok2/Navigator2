@@ -6,7 +6,7 @@ import { ExplorerPanel, FacilitatorPanel, ListenerPanel, ParticipantList } from 
 import { ErrorDisplay } from '../components/session/ErrorDisplay';
 import { Button, Card } from '../components/ui';
 import { useSessionStore } from '../state/session';
-import { useSignalingClient, ControlChannel } from '../features/webrtc';
+import { useSignalingClient, ControlChannel, PeerConnectionManager } from '../features/webrtc';
 import type { ConnectionStatus, ParticipantRole } from '../types/session';
 import type { SignalingClientEventMap } from '../types/signaling';
 import type { SessionError } from '../features/webrtc/errors';
@@ -143,38 +143,91 @@ export const SessionPage = () => {
   const [controlChannel, setControlChannel] = useState<ControlChannel | null>(null);
   const controlChannelRef = useRef<ControlChannel | null>(null);
 
-  // TODO: Initialize control channel when WebRTC peer connection is established
-  // For now, we create a placeholder that will be properly initialized when
-  // RTCPeerConnection and RTCDataChannel are available
+  // Peer connection manager
+  const peerManagerRef = useRef<PeerConnectionManager | null>(null);
+
+  // Initialize peer connection manager after signaling connects
   useEffect(() => {
-    if (connectionStatus === 'connected' && !controlChannel) {
-      // Create a new control channel instance
-      const channel = new ControlChannel();
+    if (connectionStatus === 'connected' && !peerManagerRef.current) {
+      console.log('[SessionPage] Initializing PeerConnectionManager');
+      const manager = new PeerConnectionManager();
+      peerManagerRef.current = manager;
 
-      // Store in ref for cleanup
-      controlChannelRef.current = channel;
-      setControlChannel(channel);
+      // Listen for ICE candidates from peer connections
+      manager.on('iceCandidate', ({ participantId, candidate }) => {
+        console.log(`[SessionPage] Sending ICE candidate to ${participantId}`);
+        signalingClient.sendIceCandidate(participantId, candidate);
+      });
 
-      // TODO: Once WebRTC peer connections are established, connect the data channel:
-      // const peerConnection = getPeerConnection(); // From WebRTC setup
-      // if (userRole === 'facilitator') {
-      //   const dataChannel = peerConnection.createDataChannel('control');
-      //   channel.setDataChannel(dataChannel);
-      // } else {
-      //   peerConnection.addEventListener('datachannel', (event) => {
-      //     channel.setDataChannel(event.channel);
-      //   });
-      // }
+      // Listen for connection state changes
+      manager.on('connectionStateChanged', ({ participantId, state, connection }) => {
+        console.log(`[SessionPage] Peer connection state changed for ${participantId}: ${state}`);
+
+        // Handle connection failures
+        if (state === 'failed') {
+          console.error(`[SessionPage] Connection failed for ${participantId}`);
+          setSessionError({
+            type: 'webrtc-failed',
+            participantId,
+            message: `Failed to establish WebRTC connection with participant ${participantId}`,
+          });
+        }
+      });
+
+      // Listen for remote tracks
+      manager.on('track', ({ participantId, track, streams }) => {
+        console.log(`[SessionPage] Received ${track.kind} track from ${participantId}`, streams);
+        // TODO: Handle remote audio/video tracks
+      });
+
+      // Listen for data channels
+      manager.on('dataChannel', ({ participantId, channel }) => {
+        console.log(`[SessionPage] Received data channel from ${participantId}: ${channel.label}`);
+
+        // If this is the control channel and we're not the facilitator, use it
+        if (channel.label === 'control' && userRole !== 'facilitator') {
+          if (!controlChannel) {
+            const controlCh = new ControlChannel();
+            controlCh.setDataChannel(channel);
+            controlChannelRef.current = controlCh;
+            setControlChannel(controlCh);
+            console.log('[SessionPage] Control channel initialized from data channel');
+          }
+        }
+      });
+
+      // Listen for negotiation needed
+      manager.on('negotiationNeeded', async ({ participantId, connection }) => {
+        console.log(`[SessionPage] Negotiation needed for ${participantId}`);
+
+        // Only facilitator creates offers (to avoid glare)
+        if (userRole === 'facilitator') {
+          try {
+            const offer = await manager.createOffer(participantId);
+            signalingClient.sendOffer(participantId, offer);
+            console.log(`[SessionPage] Sent offer to ${participantId}`);
+          } catch (error) {
+            console.error(`[SessionPage] Failed to create offer for ${participantId}:`, error);
+          }
+        }
+      });
     }
 
     return () => {
+      // Cleanup peer connections on unmount
+      if (peerManagerRef.current) {
+        console.log('[SessionPage] Cleaning up PeerConnectionManager');
+        peerManagerRef.current.cleanup();
+        peerManagerRef.current = null;
+      }
+
       // Cleanup control channel on unmount
       if (controlChannelRef.current) {
         controlChannelRef.current.close();
         controlChannelRef.current = null;
       }
     };
-  }, [connectionStatus, controlChannel]);
+  }, [connectionStatus, signalingClient, userRole, controlChannel]);
 
   useEffect(() => {
     const handleRoomJoined = (payload: SignalingClientEventMap['roomJoined']) => {
@@ -188,11 +241,36 @@ export const SessionPage = () => {
       role,
     }: SignalingClientEventMap['participantJoined']): void => {
       addParticipant({ id: participantId, username, role, isOnline: true });
+
+      // Create peer connection for new participant
+      if (peerManagerRef.current) {
+        console.log(`[SessionPage] Creating peer connection for new participant: ${participantId}`);
+        peerManagerRef.current.createConnection(participantId);
+
+        // If we're the facilitator, create a control data channel
+        if (userRole === 'facilitator') {
+          const pc = peerManagerRef.current.getConnection(participantId);
+          if (pc && !controlChannel) {
+            const dataChannel = pc.createDataChannel('control');
+            const controlCh = new ControlChannel();
+            controlCh.setDataChannel(dataChannel);
+            controlChannelRef.current = controlCh;
+            setControlChannel(controlCh);
+            console.log('[SessionPage] Control channel initialized for facilitator');
+          }
+        }
+      }
     };
 
     const handleParticipantLeft = ({ participantId }: SignalingClientEventMap['participantLeft']): void => {
       const participant = useSessionStore.getState().participants.find(p => p.id === participantId);
       removeParticipant(participantId);
+
+      // Remove peer connection
+      if (peerManagerRef.current) {
+        console.log(`[SessionPage] Removing peer connection for ${participantId}`);
+        peerManagerRef.current.removeConnection(participantId);
+      }
 
       // Show notification for peer disconnection
       if (participant) {
@@ -233,6 +311,77 @@ export const SessionPage = () => {
       setSessionError(error);
     };
 
+    // WebRTC signaling handlers
+    const handleOffer = async ({ from, description }: SignalingClientEventMap['offer']): Promise<void> => {
+      console.log(`[SessionPage] Received offer from ${from}`);
+
+      if (!peerManagerRef.current) {
+        console.warn('[SessionPage] No peer manager available to handle offer');
+        return;
+      }
+
+      try {
+        // Create connection if it doesn't exist
+        if (!peerManagerRef.current.hasConnection(from)) {
+          peerManagerRef.current.createConnection(from);
+        }
+
+        // Set remote description
+        await peerManagerRef.current.setRemoteDescription(from, description);
+
+        // Create and send answer
+        const answer = await peerManagerRef.current.createAnswer(from);
+        signalingClient.sendAnswer(from, answer);
+        console.log(`[SessionPage] Sent answer to ${from}`);
+      } catch (error) {
+        console.error(`[SessionPage] Failed to handle offer from ${from}:`, error);
+        setSessionError({
+          type: 'webrtc-failed',
+          participantId: from,
+          message: `Failed to process offer from participant ${from}`,
+        });
+      }
+    };
+
+    const handleAnswer = async ({ from, description }: SignalingClientEventMap['answer']): Promise<void> => {
+      console.log(`[SessionPage] Received answer from ${from}`);
+
+      if (!peerManagerRef.current) {
+        console.warn('[SessionPage] No peer manager available to handle answer');
+        return;
+      }
+
+      try {
+        await peerManagerRef.current.setRemoteDescription(from, description);
+        console.log(`[SessionPage] Set remote description (answer) for ${from}`);
+      } catch (error) {
+        console.error(`[SessionPage] Failed to handle answer from ${from}:`, error);
+        setSessionError({
+          type: 'webrtc-failed',
+          participantId: from,
+          message: `Failed to process answer from participant ${from}`,
+        });
+      }
+    };
+
+    const handleIceCandidate = async ({
+      from,
+      candidate,
+    }: SignalingClientEventMap['iceCandidate']): Promise<void> => {
+      console.log(`[SessionPage] Received ICE candidate from ${from}`);
+
+      if (!peerManagerRef.current) {
+        console.warn('[SessionPage] No peer manager available to handle ICE candidate');
+        return;
+      }
+
+      try {
+        await peerManagerRef.current.addIceCandidate(from, candidate);
+      } catch (error) {
+        console.error(`[SessionPage] Failed to add ICE candidate from ${from}:`, error);
+      }
+    };
+
     signalingClient.on('roomJoined', handleRoomJoined);
     signalingClient.on('participantJoined', handleParticipantJoined);
     signalingClient.on('participantLeft', handleParticipantLeft);
@@ -241,6 +390,9 @@ export const SessionPage = () => {
     signalingClient.on('reconnecting', handleReconnecting);
     signalingClient.on('disconnected', handleDisconnected);
     signalingClient.on('error', handleError);
+    signalingClient.on('offer', handleOffer);
+    signalingClient.on('answer', handleAnswer);
+    signalingClient.on('iceCandidate', handleIceCandidate);
 
     return () => {
       signalingClient.off('roomJoined', handleRoomJoined);
@@ -251,6 +403,9 @@ export const SessionPage = () => {
       signalingClient.off('reconnecting', handleReconnecting);
       signalingClient.off('disconnected', handleDisconnected);
       signalingClient.off('error', handleError);
+      signalingClient.off('offer', handleOffer);
+      signalingClient.off('answer', handleAnswer);
+      signalingClient.off('iceCandidate', handleIceCandidate);
     };
   }, [
     addParticipant,
@@ -258,6 +413,8 @@ export const SessionPage = () => {
     setConnectionStatus,
     setParticipants,
     signalingClient,
+    userRole,
+    controlChannel,
   ]);
 
   const handleLeaveRoom = useCallback(() => {
