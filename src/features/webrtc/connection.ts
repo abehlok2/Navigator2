@@ -11,6 +11,59 @@ export interface IceGatheringSummary {
   timedOut: boolean;
 }
 
+export async function addAudioTrack(
+  pc: RTCPeerConnection,
+  stream: MediaStream,
+): Promise<RTCRtpSender> {
+  const audioTrack = stream.getAudioTracks()[0];
+
+  if (!audioTrack) {
+    throw new Error('No audio track available');
+  }
+
+  const sender = pc.addTrack(audioTrack, stream);
+
+  const parameters = sender.getParameters();
+  if (!parameters.encodings) {
+    parameters.encodings = [{}];
+  }
+  parameters.encodings[0].maxBitrate = 128_000;
+  parameters.encodings[0].priority = 'high';
+  await sender.setParameters(parameters);
+
+  return sender;
+}
+
+export interface RemoteStreamHandler {
+  onTrack: (stream: MediaStream, participantId: string) => void;
+  onTrackEnded: (participantId: string) => void;
+}
+
+export function setupRemoteStreamHandling(
+  pc: RTCPeerConnection,
+  participantId: string,
+  handler: RemoteStreamHandler,
+): void {
+  pc.ontrack = (event) => {
+    const [remoteStream] = event.streams;
+    if (remoteStream) {
+      handler.onTrack(remoteStream, participantId);
+    }
+  };
+
+  pc.onremovetrack = () => {
+    handler.onTrackEnded(participantId);
+  };
+}
+
+export async function replaceAudioTrack(
+  sender: RTCRtpSender,
+  newStream: MediaStream,
+): Promise<void> {
+  const newTrack = newStream.getAudioTracks()[0] ?? null;
+  await sender.replaceTrack(newTrack);
+}
+
 type CandidateStats = RTCStats & {
   candidateType?: RTCIceCandidateType;
   type: 'local-candidate' | 'remote-candidate';
