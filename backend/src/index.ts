@@ -61,7 +61,7 @@ const readJsonBody = async (req: IncomingMessage): Promise<any> => {
   }
 };
 
-const sendJson = (res: Response, statusCode: number, payload: unknown) => {
+const sendJson = (res: ServerResponse, statusCode: number, payload: unknown) => {
   res.statusCode = statusCode;
   res.setHeader('Content-Type', 'application/json');
   res.end(JSON.stringify(payload));
@@ -261,7 +261,7 @@ const handleCorsPrelight = (res: ServerResponse) => {
 // Modify the existing server creation
 const server = http.createServer(async (req, res) => {
   setCorsHeaders(res, req);
-  
+
   if (req.method === 'OPTIONS') {
     handleCorsPrelight(res);
     return;
@@ -610,9 +610,9 @@ const handleMessage = (ctx: SignalingContext, raw: RawData) => {
       forwardRtcMessage(
         ctx,
         parsed as
-          | SignalingMessage<'offer', { targetId?: unknown; description?: unknown }>
-          | SignalingMessage<'answer', { targetId?: unknown; description?: unknown }>
-          | SignalingMessage<'ice-candidate', { targetId?: unknown; candidate?: unknown }>,
+        | SignalingMessage<'offer', { targetId?: unknown; description?: unknown }>
+        | SignalingMessage<'answer', { targetId?: unknown; description?: unknown }>
+        | SignalingMessage<'ice-candidate', { targetId?: unknown; candidate?: unknown }>,
       );
       break;
     case 'authenticate':
