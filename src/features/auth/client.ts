@@ -43,6 +43,18 @@ const readJson = async <T>(response: Response): Promise<T> => {
   return JSON.parse(text) as T;
 };
 
+export class HttpError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = 'HttpError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
 export const getStoredToken = (): string | null => {
   if (!isBrowser) {
     return null;
@@ -115,24 +127,28 @@ export const fetchWithAuth = async <T = JsonRecord>(
 
   if (!response.ok) {
     let errorMessage = response.statusText || 'Request failed';
+    let errorCode: string | undefined;
 
     try {
-      const body = await readJson<{ message?: string }>(response);
-      if (body?.message) {
-        errorMessage = body.message;
+      const body = await readJson<{ error?: { message?: string; code?: string } }>(response);
+      if (body?.error?.message) {
+        errorMessage = body.error.message;
+      }
+      if (body?.error?.code) {
+        errorCode = body.error.code;
       }
     } catch (error) {
       console.warn('Failed to parse error response', error);
     }
 
-    throw new Error(errorMessage);
+    throw new HttpError(errorMessage, response.status, errorCode);
   }
 
   return readJson<T>(response);
 };
 
-export const login = async (username: string, password: string): Promise<AuthResponse> => {
-  const payload: LoginPayload = { username, password };
+export const login = async (email: string, password: string): Promise<AuthResponse> => {
+  const payload: LoginPayload = { email, password };
 
   const result = await fetchWithAuth<AuthResponse>('/auth/login', {
     method: 'POST',
@@ -145,11 +161,11 @@ export const login = async (username: string, password: string): Promise<AuthRes
 };
 
 export const register = async (
-  username: string,
+  email: string,
   password: string,
-  role: RegisterPayload['role']
+  displayName?: string,
 ): Promise<AuthResponse> => {
-  const payload: RegisterPayload = { username, password, role };
+  const payload: RegisterPayload = { email, password, displayName };
 
   const result = await fetchWithAuth<AuthResponse>('/auth/register', {
     method: 'POST',

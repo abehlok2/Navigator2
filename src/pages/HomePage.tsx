@@ -6,6 +6,7 @@ import { Button, Card, Input } from '../components/ui';
 import { useSignalingClient } from '../features/webrtc';
 import { useAuthStore } from '../state/auth';
 import { useSessionStore } from '../state/session';
+import type { ParticipantRole } from '../types/session';
 
 const layoutStyles: CSSProperties = {
   minHeight: '100vh',
@@ -70,6 +71,25 @@ export const HomePage = () => {
   const [joinPassword, setJoinPassword] = useState('');
   const [joinError, setJoinError] = useState<string | null>(null);
   const [isJoiningRoom, setIsJoiningRoom] = useState(false);
+
+  const userDisplayName = useMemo(() => {
+    if (!user) {
+      return 'Guest';
+    }
+
+    if (user.displayName && user.displayName.trim()) {
+      return user.displayName.trim();
+    }
+
+    if (user.email.includes('@')) {
+      const [namePart] = user.email.split('@');
+      return namePart ?? user.email;
+    }
+
+    return user.email;
+  }, [user]);
+
+  const effectiveRole = useMemo<ParticipantRole>(() => user?.role ?? 'explorer', [user?.role]);
 
   useEffect(() => {
     if (!token) {
@@ -140,8 +160,8 @@ export const HomePage = () => {
         return;
       }
 
-      if (!user?.role) {
-        setJoinError('Your account is missing a role. Please contact an administrator.');
+      if (!user) {
+        setJoinError('You must be logged in to join a room.');
         return;
       }
 
@@ -158,13 +178,13 @@ export const HomePage = () => {
             : [
                 {
                   id: user.id,
-                  username: user.username,
-                  role: user.role,
+                  username: userDisplayName,
+                  role: effectiveRole,
                   isOnline: true,
                 },
               ];
 
-        setRoom(trimmedRoomId, user.role, normalizedParticipants);
+        setRoom(trimmedRoomId, effectiveRole, normalizedParticipants);
         setParticipants(normalizedParticipants);
         setConnectionStatus('connected');
 
@@ -191,6 +211,8 @@ export const HomePage = () => {
       setRoom,
       signalingClient,
       user,
+      userDisplayName,
+      effectiveRole,
     ],
   );
 
@@ -202,15 +224,15 @@ export const HomePage = () => {
   }, [clearSession, logout, navigate, signalingClient]);
 
   const roleLabel = useMemo(() => {
-    return user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'Unknown';
-  }, [user?.role]);
+    return effectiveRole.charAt(0).toUpperCase() + effectiveRole.slice(1);
+  }, [effectiveRole]);
 
   return (
     <main style={layoutStyles}>
       <header style={headerStyles}>
         <div>
           <h1 style={{ margin: 0, fontSize: '2rem' }}>
-            {`Welcome, ${user?.username ?? 'Guest'} (${roleLabel})`}
+            {`Welcome, ${userDisplayName} (${roleLabel})`}
           </h1>
           <p style={{ margin: '0.25rem 0 0', color: 'var(--text-secondary, #a0a0a0)' }}>
             Choose an option below to start or join a Navigator session.
@@ -222,7 +244,7 @@ export const HomePage = () => {
       </header>
 
       <section style={cardsContainerStyles}>
-        {user?.role === 'facilitator' ? (
+        {effectiveRole === 'facilitator' ? (
           <Card title="Create New Room">
             <div style={cardContentStyles}>
               <p style={{ margin: 0, color: 'var(--text-secondary, #a0a0a0)' }}>

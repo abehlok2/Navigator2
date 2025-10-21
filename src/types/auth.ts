@@ -1,18 +1,21 @@
-export type UserRole = 'facilitator' | 'explorer' | 'listener';
+import type { ParticipantRole } from './session';
+
+export type UserRole = ParticipantRole;
 
 export interface User {
   id: string;
-  username: string;
-  role: UserRole;
+  email: string;
+  displayName?: string;
+  role?: UserRole;
 }
 
 export interface LoginPayload {
-  username: string;
+  email: string;
   password: string;
 }
 
 export interface RegisterPayload extends LoginPayload {
-  role: UserRole;
+  displayName?: string;
 }
 
 export interface AuthResponse {
