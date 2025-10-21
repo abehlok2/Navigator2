@@ -8,6 +8,14 @@ import { useAuthStore } from '../state/auth';
 import { useSessionStore } from '../state/session';
 import type { ParticipantRole } from '../types/session';
 
+const joinRoleOptions: ReadonlyArray<{
+  value: Exclude<ParticipantRole, 'facilitator'>;
+  label: string;
+}> = [
+  { value: 'explorer', label: 'Explorer' },
+  { value: 'listener', label: 'Listener' },
+];
+
 const layoutStyles: CSSProperties = {
   minHeight: '100vh',
   display: 'flex',
@@ -71,6 +79,9 @@ export const HomePage = () => {
   const [joinPassword, setJoinPassword] = useState('');
   const [joinError, setJoinError] = useState<string | null>(null);
   const [isJoiningRoom, setIsJoiningRoom] = useState(false);
+  const [selectedJoinRole, setSelectedJoinRole] = useState<Exclude<ParticipantRole, 'facilitator'>>(
+    'explorer',
+  );
 
   const userDisplayName = useMemo(() => {
     if (!user) {
@@ -89,7 +100,7 @@ export const HomePage = () => {
     return user.email;
   }, [user]);
 
-  const effectiveRole = useMemo<ParticipantRole>(() => user?.role ?? 'explorer', [user?.role]);
+  const facilitatorRole = useMemo<ParticipantRole>(() => user?.role ?? 'facilitator', [user?.role]);
 
   useEffect(() => {
     if (!token) {
@@ -170,21 +181,38 @@ export const HomePage = () => {
 
       try {
         await ensureConnected();
-        const { participants } = await signalingClient.joinRoom(trimmedRoomId, trimmedPassword);
+        const { participantId, participants } = await signalingClient.joinRoom(
+          trimmedRoomId,
+          trimmedPassword,
+          selectedJoinRole,
+        );
+
+        const fallbackRole = selectedJoinRole;
+        const actualRole =
+          participants.find((participant) => participant.id === participantId)?.role ?? fallbackRole;
 
         const normalizedParticipants =
           participants.length > 0
             ? participants.map((participant) => ({ ...participant }))
             : [
                 {
-                  id: user.id,
+                  id: participantId,
                   username: userDisplayName,
-                  role: effectiveRole,
+                  role: actualRole,
                   isOnline: true,
                 },
               ];
 
-        setRoom(trimmedRoomId, effectiveRole, normalizedParticipants);
+        if (!normalizedParticipants.some((participant) => participant.id === participantId)) {
+          normalizedParticipants.push({
+            id: participantId,
+            username: userDisplayName,
+            role: actualRole,
+            isOnline: true,
+          });
+        }
+
+        setRoom(trimmedRoomId, actualRole, normalizedParticipants);
         setParticipants(normalizedParticipants);
         setConnectionStatus('connected');
 
@@ -212,7 +240,7 @@ export const HomePage = () => {
       signalingClient,
       user,
       userDisplayName,
-      effectiveRole,
+      selectedJoinRole,
     ],
   );
 
@@ -224,8 +252,8 @@ export const HomePage = () => {
   }, [clearSession, logout, navigate, signalingClient]);
 
   const roleLabel = useMemo(() => {
-    return effectiveRole.charAt(0).toUpperCase() + effectiveRole.slice(1);
-  }, [effectiveRole]);
+    return facilitatorRole.charAt(0).toUpperCase() + facilitatorRole.slice(1);
+  }, [facilitatorRole]);
 
   return (
     <main style={layoutStyles}>
@@ -244,7 +272,7 @@ export const HomePage = () => {
       </header>
 
       <section style={cardsContainerStyles}>
-        {effectiveRole === 'facilitator' ? (
+        {facilitatorRole === 'facilitator' ? (
           <Card title="Create New Room">
             <div style={cardContentStyles}>
               <p style={{ margin: 0, color: 'var(--text-secondary, #a0a0a0)' }}>
@@ -310,6 +338,31 @@ export const HomePage = () => {
                 {joinError}
               </p>
             ) : null}
+            <fieldset
+              style={{
+                border: '1px solid var(--border-color, rgba(255, 255, 255, 0.2))',
+                borderRadius: '0.5rem',
+                padding: '1rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.75rem',
+              }}
+            >
+              <legend style={{ padding: '0 0.5rem' }}>Choose how you'll participate</legend>
+              {joinRoleOptions.map((option) => (
+                <label key={option.value} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <input
+                    type="radio"
+                    name="join-role"
+                    value={option.value}
+                    checked={selectedJoinRole === option.value}
+                    onChange={() => setSelectedJoinRole(option.value)}
+                    disabled={isJoiningRoom}
+                  />
+                  <span>{option.label}</span>
+                </label>
+              ))}
+            </fieldset>
             <Button type="submit" disabled={isJoiningRoom}>
               {isJoiningRoom ? 'Joining…' : 'Join Room'}
             </Button>

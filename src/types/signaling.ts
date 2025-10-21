@@ -40,7 +40,10 @@ export interface SignalingMessageEnvelope<Type extends string, Payload> {
 export type SignalingClientMessage =
   | SignalingMessageEnvelope<'authenticate', { token: string }>
   | SignalingMessageEnvelope<'create-room', { password: string }>
-  | SignalingMessageEnvelope<'join-room', { roomId: string; password: string }>
+  | SignalingMessageEnvelope<
+      'join-room',
+      { roomId: string; password: string; role?: Exclude<ParticipantRole, 'facilitator'> }
+    >
   | SignalingMessageEnvelope<'leave-room', Record<string, never>>
   | SignalingMessageEnvelope<
       'offer',

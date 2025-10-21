@@ -22,7 +22,7 @@ const initializeAuthState = () => {
   const user = storedUser
     ? ({
         ...storedUser,
-        role: storedUser.role ?? 'explorer',
+        role: 'facilitator',
       } satisfies User)
     : null;
 
@@ -41,7 +41,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
     set(() => ({
       user: {
         ...user,
-        role: user.role ?? 'explorer',
+        role: 'facilitator',
       },
       token,
       isAuthenticated: true,
