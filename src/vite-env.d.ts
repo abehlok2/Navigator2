@@ -116,6 +116,8 @@ export type {
   ConnectionStatus,
   Participant,
   ParticipantRole,
+  LeaveRoomCallback,
+  SessionOverview,
 } from './types/session';
 
 export type {
