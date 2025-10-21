@@ -51,7 +51,7 @@ export function setupRemoteStreamHandling(
     }
   };
 
-  pc.onremovetrack = () => {
+  pc.removetrack = () => {
     handler.onTrackEnded(participantId);
   };
 }
