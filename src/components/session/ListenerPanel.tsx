@@ -3,6 +3,7 @@ import { useState, type CSSProperties } from 'react';
 import { Card } from '../ui';
 import { SessionHeader } from './SessionHeader';
 import { ParticipantList } from './ParticipantList';
+import { SessionNotes } from './SessionNotes';
 import { VolumeControl } from '../audio/VolumeControl';
 import { useSessionStore } from '../../state/session';
 
@@ -141,6 +142,9 @@ export const ListenerPanel = () => {
           </section>
         </div>
       </Card>
+
+      {/* Session Notes */}
+      {roomId && <SessionNotes roomId={roomId} />}
 
       {/* Participant List */}
       <ParticipantList />

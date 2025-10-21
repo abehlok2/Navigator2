@@ -11,6 +11,7 @@ import { BackgroundPlayer, MicrophoneControl, RecordingControl } from '../audio'
 import { ErrorDisplay } from './ErrorDisplay';
 import { ParticipantList } from './ParticipantList';
 import { SessionHeader } from './SessionHeader';
+import { SessionNotes } from './SessionNotes';
 import { Card } from '../ui';
 import { useSessionStore } from '../../state/session';
 import {
@@ -704,6 +705,9 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
           </div>
         </div>
       </Card>
+
+      {/* Session Notes */}
+      {roomId && <SessionNotes roomId={roomId} />}
 
       <ParticipantList />
     </section>
