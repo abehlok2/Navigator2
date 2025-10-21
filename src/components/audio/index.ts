@@ -1,6 +1,10 @@
 export { RecordingControl } from './RecordingControl';
 export { BackgroundPlayer } from './BackgroundPlayer';
 export { MicrophoneControl } from './MicrophoneControl';
+export { AudioLevelDisplay } from './AudioLevelDisplay';
+export { BackgroundAudioStatus } from './BackgroundAudioStatus';
 export type { RecordingControlProps } from './RecordingControl';
 export type { BackgroundPlayerProps } from './BackgroundPlayer';
 export type { MicrophoneControlProps } from './MicrophoneControl';
+export type { AudioLevelDisplayProps } from './AudioLevelDisplay';
+export type { BackgroundAudioStatusProps } from './BackgroundAudioStatus';
