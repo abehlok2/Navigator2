@@ -1,3 +1,2 @@
-export const TODOAudioFeature = () => {
-  // TODO: Implement audio feature logic
-};
+export { AudioPlayer } from './player';
+export type { AudioPlayerEvent } from './player';
