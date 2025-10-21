@@ -181,3 +181,22 @@ Status: `200 OK`
 ```
 
 If the server reports an `"error"` status the HTTP response code SHOULD be `503 Service Unavailable` and the payload remains in the same format with `"status": "error"`.
+
+---
+
+## Pre-registering Accounts with `.env`
+
+For local development or deployments where you want known credentials available immediately, the backend can preload accounts
+from environment variables. Create a `.env` file next to `backend/package.json` (or otherwise ensure the variables are present in
+the server process) with a `NAVIGATOR_PRESET_USERS` variable that contains a JSON array of account definitions:
+
+```env
+NAVIGATOR_SECRET="choose-a-secret"
+NAVIGATOR_PRESET_USERS='[
+  { "email": "facilitator@example.com", "password": "supersecure", "displayName": "Facilitator" },
+  { "email": "participant@example.com", "password": "anotherpass" }
+]'
+```
+
+Each entry must include an `email` and `password` (minimum 8 characters). An optional `displayName` may also be supplied. If an
+account with the same email already exists, its password and display name will be updated with the values from the preset.

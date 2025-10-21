@@ -4,6 +4,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { WebSocketServer, WebSocket, RawData } from 'ws';
 import { URL } from 'url';
+import dotenv from 'dotenv';
 import { createHealthHandler } from './health.js';
 import { sendJsonError } from './errors.js';
 import { UserStore } from './users.js';
@@ -35,11 +36,76 @@ interface SignalingContext {
   role: ParticipantRole;
 }
 
+dotenv.config();
+
 const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+const validateEmail = (email: unknown): email is string =>
+  typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+const validatePassword = (password: unknown): password is string =>
+  typeof password === 'string' && password.length >= 8;
+
 const SECRET = process.env.NAVIGATOR_SECRET ?? 'change-me';
 
 const userStore = new UserStore();
 const roomStore = new RoomStore();
+
+const seedPresetUsers = () => {
+  const presetUsers = process.env.NAVIGATOR_PRESET_USERS;
+  if (!presetUsers) {
+    return;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(presetUsers);
+  } catch (error) {
+    console.error('Failed to parse NAVIGATOR_PRESET_USERS JSON.', error);
+    return;
+  }
+
+  if (!Array.isArray(parsed)) {
+    console.error('NAVIGATOR_PRESET_USERS must be a JSON array.');
+    return;
+  }
+
+  parsed.forEach((entry, index) => {
+    if (typeof entry !== 'object' || entry === null) {
+      console.warn(`Skipping preset user at index ${index}: entry must be an object.`);
+      return;
+    }
+
+    const { email, password, displayName } = entry as {
+      email?: unknown;
+      password?: unknown;
+      displayName?: unknown;
+    };
+
+    if (!validateEmail(email) || !validatePassword(password)) {
+      console.warn(`Skipping preset user at index ${index}: invalid email or password.`);
+      return;
+    }
+
+    if (displayName !== undefined && typeof displayName !== 'string') {
+      console.warn(`Skipping preset user at index ${index}: displayName must be a string when provided.`);
+      return;
+    }
+
+    try {
+      const user = userStore.upsertUser({
+        email,
+        password,
+        displayName: displayName as string | undefined,
+      });
+      console.info(`Loaded preset account for ${user.email}.`);
+    } catch (error) {
+      console.error(`Failed to load preset user at index ${index}.`, error);
+    }
+  });
+};
+
+seedPresetUsers();
 
 const getExpiresAt = () => new Date(Date.now() + TOKEN_TTL_MS);
 
@@ -66,12 +132,6 @@ const sendJson = (res: ServerResponse, statusCode: number, payload: unknown) => 
   res.setHeader('Content-Type', 'application/json');
   res.end(JSON.stringify(payload));
 };
-
-const validateEmail = (email: unknown): email is string =>
-  typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-
-const validatePassword = (password: unknown): password is string =>
-  typeof password === 'string' && password.length >= 8;
 
 const requireAuthHeader = (req: IncomingMessage): string | undefined => {
   const header = req.headers['authorization'];
