@@ -1,4 +1,4 @@
-type AudioAnalyserEntry = {
+export type AudioAnalyserEntry = {
   context: AudioContext;
   analyser: AnalyserNode;
   dataArray: Uint8Array;

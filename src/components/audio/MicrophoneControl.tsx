@@ -7,7 +7,7 @@ import {
   stopMicrophoneStream,
 } from '../../features/audio/microphone';
 
-interface MicrophoneControlProps {
+export interface MicrophoneControlProps {
   onToggle: (active: boolean, stream?: MediaStream) => void;
   isActive: boolean;
   level?: number;

@@ -1,7 +1,7 @@
 import { ChangeEvent, useEffect, useRef, useState } from 'react';
 import { AudioPlayer } from '../../features/audio/player';
 
-type BackgroundPlayerProps = {
+export type BackgroundPlayerProps = {
   onFileLoad?: (file: File) => void;
   onPlay?: () => void;
   onPause?: () => void;

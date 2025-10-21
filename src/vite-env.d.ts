@@ -1,5 +1,27 @@
 /// <reference types="vite/client" />
 
+import type { AudioAnalyserEntry as AudioAnalyserEntryType } from './features/audio/microphone';
+import type {
+  AudioPlayer as AudioPlayerClass,
+  AudioPlayerEvent as AudioPlayerEventType,
+} from './features/audio/player';
+import type { SessionRecorder as SessionRecorderClass } from './features/audio/recorder';
+import type { BackgroundPlayerProps as BackgroundPlayerPropsType } from './components/audio/BackgroundPlayer';
+import type { MicrophoneControlProps as MicrophoneControlPropsType } from './components/audio/MicrophoneControl';
+import type { RecordingControlProps as RecordingControlPropsType } from './components/audio/RecordingControl';
+
+declare global {
+  type AudioAnalyserEntry = AudioAnalyserEntryType;
+  type AudioPlayer = AudioPlayerClass;
+  type AudioPlayerEvent = AudioPlayerEventType;
+  type SessionRecorder = SessionRecorderClass;
+  type BackgroundPlayerProps = BackgroundPlayerPropsType;
+  type MicrophoneControlProps = MicrophoneControlPropsType;
+  type RecordingControlProps = RecordingControlPropsType;
+}
+
+export {};
+
 interface ImportMetaEnv {
   /**
    * Base URL for API requests served by the Navigator backend.
@@ -132,5 +154,18 @@ export type {
   SignalingRtcPayloads,
   SignalingServerMessage,
 } from './types/signaling';
+
+export type {
+  AudioAnalyserEntry,
+  AudioPlayer,
+  AudioPlayerEvent,
+  SessionRecorder,
+} from './features/audio';
+
+export type {
+  BackgroundPlayerProps,
+  MicrophoneControlProps,
+  RecordingControlProps,
+} from './components/audio';
 
 export {};
