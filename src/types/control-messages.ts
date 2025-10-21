@@ -29,12 +29,20 @@ export type ChannelLifecycleMessageType =
   | 'channel:error';
 
 /**
+ * Latency measurement message types
+ */
+export type LatencyMessageType =
+  | 'latency:ping'
+  | 'latency:pong';
+
+/**
  * All control message types
  */
 export type ControlMessageType =
   | AudioControlMessageType
   | RecordingControlMessageType
-  | ChannelLifecycleMessageType;
+  | ChannelLifecycleMessageType
+  | LatencyMessageType;
 
 /**
  * Base control message structure
@@ -100,6 +108,17 @@ export interface ChannelErrorMessage extends BaseControlMessage<'channel:error'>
 }
 
 /**
+ * Latency measurement messages
+ */
+export interface LatencyPingMessage extends BaseControlMessage<'latency:ping'> {
+  pingId: string;
+}
+
+export interface LatencyPongMessage extends BaseControlMessage<'latency:pong'> {
+  pingId: string;
+}
+
+/**
  * Union of all possible control messages
  */
 export type ControlMessage =
@@ -113,7 +132,9 @@ export type ControlMessage =
   | RecordingStopMessage
   | ChannelOpenMessage
   | ChannelCloseMessage
-  | ChannelErrorMessage;
+  | ChannelErrorMessage
+  | LatencyPingMessage
+  | LatencyPongMessage;
 
 /**
  * Type guard to check if a message is a valid control message
@@ -130,7 +151,8 @@ export function isControlMessage(value: unknown): value is ControlMessage {
     typeof message.timestamp === 'number' &&
     (message.type.startsWith('audio:') ||
      message.type.startsWith('recording:') ||
-     message.type.startsWith('channel:'))
+     message.type.startsWith('channel:') ||
+     message.type.startsWith('latency:'))
   );
 }
 

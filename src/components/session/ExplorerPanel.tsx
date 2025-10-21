@@ -9,6 +9,7 @@ import { AudioLevelDisplay } from '../audio/AudioLevelDisplay';
 import { BackgroundAudioStatus } from '../audio/BackgroundAudioStatus';
 import { useSessionStore } from '../../state/session';
 import type { ControlChannel } from '../../features/webrtc/ControlChannel';
+import { LatencyCompensator } from '../../features/audio/latencyCompensation';
 
 const containerStyles: CSSProperties = {
   display: 'flex',
@@ -63,6 +64,9 @@ export const ExplorerPanel = ({ controlChannel }: ExplorerPanelProps) => {
     volume: 1,
   });
 
+  // Latency compensator for synchronized audio playback
+  const [latencyCompensator] = useState(() => new LatencyCompensator());
+
   // Microphone toggle handler
   const handleMicrophoneToggle = useCallback((active: boolean, stream?: MediaStream) => {
     setIsMicActive(active);
@@ -95,6 +99,27 @@ export const ExplorerPanel = ({ controlChannel }: ExplorerPanelProps) => {
 
     return () => clearInterval(interval);
   }, [connectionStatus]);
+
+  // Measure latency periodically for synchronized audio playback
+  useEffect(() => {
+    if (!controlChannel) {
+      return;
+    }
+
+    // Measure latency on connection
+    latencyCompensator.measureLatency(controlChannel).then((latency) => {
+      console.log(`Estimated latency: ${latency}ms`);
+    });
+
+    // Re-measure every 30 seconds
+    const interval = setInterval(() => {
+      latencyCompensator.measureLatency(controlChannel).then((latency) => {
+        console.log(`Updated latency: ${latency}ms`);
+      });
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [controlChannel, latencyCompensator]);
 
   // Listen for control messages from facilitator
   useEffect(() => {
@@ -131,9 +156,11 @@ export const ExplorerPanel = ({ controlChannel }: ExplorerPanelProps) => {
 
     // Handle audio:progress messages
     const handleAudioProgress = (message: import('../../types/control-messages').AudioProgressMessage) => {
+      // Apply latency compensation to synchronize playback
+      const compensatedTime = message.currentTime + (latencyCompensator.getEstimatedLatency() / 1000);
       setBackgroundAudioState((prev) => ({
         ...prev,
-        currentTime: message.currentTime,
+        currentTime: compensatedTime,
         duration: message.duration,
       }));
     };
