@@ -194,6 +194,14 @@ export const SessionPage = () => {
       const manager = new PeerConnectionManager();
       peerManagerRef.current = manager;
 
+      // Initialize control channel for facilitator role
+      if (userRole === 'facilitator' && !controlChannelRef.current) {
+        console.log('[SessionPage] Initializing ControlChannel for facilitator');
+        const controlCh = new ControlChannel();
+        controlChannelRef.current = controlCh;
+        setControlChannel(controlCh);
+      }
+
       // Listen for ICE candidates from peer connections
       manager.on('iceCandidate', ({ participantId, candidate }) => {
         console.log(`[SessionPage] Sending ICE candidate to ${participantId}`);
@@ -257,12 +265,16 @@ export const SessionPage = () => {
 
         // If this is the control channel and we're not the facilitator, use it
         if (channel.label === 'control' && userRole !== 'facilitator') {
-          if (!controlChannel) {
+          if (!controlChannelRef.current) {
             const controlCh = new ControlChannel();
-            controlCh.setDataChannel(channel);
+            controlCh.setDataChannel(channel, participantId);
             controlChannelRef.current = controlCh;
             setControlChannel(controlCh);
-            console.log('[SessionPage] Control channel initialized from data channel');
+            console.log(`[SessionPage] Control channel initialized from facilitator ${participantId}`);
+          } else {
+            // Already have a control channel, just add this data channel
+            controlChannelRef.current.setDataChannel(channel, participantId);
+            console.log(`[SessionPage] Added control data channel from ${participantId}`);
           }
         }
       });
@@ -304,6 +316,34 @@ export const SessionPage = () => {
     const handleRoomJoined = (payload: SignalingClientEventMap['roomJoined']) => {
       setParticipants(payload.participants.map((participant) => ({ ...participant })));
       setConnectionStatus('connected');
+
+      // Create peer connections for existing participants
+      if (peerManagerRef.current) {
+        payload.participants.forEach((participant) => {
+          // Don't create connection to ourselves
+          if (participant.id === useSessionStore.getState().userId) {
+            return;
+          }
+
+          console.log(`[SessionPage] Creating peer connection for existing participant: ${participant.id}`);
+          peerManagerRef.current!.createConnection(participant.id);
+
+          // If we're the facilitator, create control data channel for this participant
+          if (userRole === 'facilitator') {
+            const pc = peerManagerRef.current!.getConnection(participant.id);
+            if (pc) {
+              console.log(`[SessionPage] Creating control data channel for existing participant ${participant.id}`);
+              const dataChannel = pc.createDataChannel('control');
+
+              // Add the data channel to the control channel
+              if (controlChannelRef.current) {
+                controlChannelRef.current.setDataChannel(dataChannel, participant.id);
+                console.log(`[SessionPage] Added control data channel for ${participant.id}`);
+              }
+            }
+          }
+        });
+      }
     };
 
     const handleParticipantJoined = ({
@@ -318,16 +358,20 @@ export const SessionPage = () => {
         console.log(`[SessionPage] Creating peer connection for new participant: ${participantId}`);
         peerManagerRef.current.createConnection(participantId);
 
-        // If we're the facilitator, create a control data channel
+        // If we're the facilitator, create a control data channel for this participant
         if (userRole === 'facilitator') {
           const pc = peerManagerRef.current.getConnection(participantId);
-          if (pc && !controlChannel) {
+          if (pc) {
+            console.log(`[SessionPage] Creating control data channel for ${participantId}`);
             const dataChannel = pc.createDataChannel('control');
-            const controlCh = new ControlChannel();
-            controlCh.setDataChannel(dataChannel);
-            controlChannelRef.current = controlCh;
-            setControlChannel(controlCh);
-            console.log('[SessionPage] Control channel initialized for facilitator');
+
+            // Add the data channel to the control channel
+            if (controlChannelRef.current) {
+              controlChannelRef.current.setDataChannel(dataChannel, participantId);
+              console.log(`[SessionPage] Added control data channel for ${participantId}`);
+            } else {
+              console.warn('[SessionPage] Control channel not initialized for facilitator');
+            }
           }
         }
       }
