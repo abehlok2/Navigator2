@@ -581,6 +581,26 @@ export const FacilitatorPanel = ({ controlChannel }: FacilitatorPanelProps) => {
     }
   }, [backgroundVolume, mixer]);
 
+  // Handle latency ping messages and respond with pong
+  useEffect(() => {
+    if (!controlChannel) {
+      return;
+    }
+
+    const handleLatencyPing = (message: import('../../types/control-messages').LatencyPingMessage) => {
+      // Immediately respond with pong message containing the same pingId
+      sendControlMessage('latency:pong', {
+        pingId: message.pingId,
+      });
+    };
+
+    controlChannel.on('latency:ping', handleLatencyPing);
+
+    return () => {
+      controlChannel.off('latency:ping', handleLatencyPing);
+    };
+  }, [controlChannel, sendControlMessage]);
+
   return (
     <section style={panelStyles} aria-label="Facilitator controls">
       <SessionHeader {...sessionOverview} />
