@@ -9,6 +9,7 @@ import type { SessionRecorder as SessionRecorderClass } from './features/audio/r
 import type { BackgroundPlayerProps as BackgroundPlayerPropsType } from './components/audio/BackgroundPlayer';
 import type { MicrophoneControlProps as MicrophoneControlPropsType } from './components/audio/MicrophoneControl';
 import type { RecordingControlProps as RecordingControlPropsType } from './components/audio/RecordingControl';
+import type { FacilitatorPlaybackState as FacilitatorPlaybackStateType } from './components/session/FacilitatorPanel';
 
 declare global {
   type AudioAnalyserEntry = AudioAnalyserEntryType;
@@ -18,6 +19,7 @@ declare global {
   type BackgroundPlayerProps = BackgroundPlayerPropsType;
   type MicrophoneControlProps = MicrophoneControlPropsType;
   type RecordingControlProps = RecordingControlPropsType;
+  type FacilitatorPlaybackState = FacilitatorPlaybackStateType;
 }
 
 export {};
@@ -167,5 +169,7 @@ export type {
   MicrophoneControlProps,
   RecordingControlProps,
 } from './components/audio';
+
+export type { FacilitatorPlaybackState } from './components/session/FacilitatorPanel';
 
 export {};
