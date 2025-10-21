@@ -313,7 +313,11 @@ export const SessionPage = () => {
         controlChannelRef.current = null;
       }
     };
-  }, [connectionStatus, signalingClient, userRole, controlChannel]);
+    // Note: controlChannel is intentionally omitted from dependencies to avoid
+    // triggering cleanup/reinitialization when its state updates. The
+    // ControlChannel instance is stored in a ref and does not need effect
+    // re-execution on render updates.
+  }, [connectionStatus, signalingClient, userRole]);
 
   useEffect(() => {
     const handleRoomJoined = (payload: SignalingClientEventMap['roomJoined']) => {
