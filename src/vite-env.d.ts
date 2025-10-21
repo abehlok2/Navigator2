@@ -11,6 +11,7 @@ import type { MicrophoneControlProps as MicrophoneControlPropsType } from './com
 import type { RecordingControlProps as RecordingControlPropsType } from './components/audio/RecordingControl';
 import type { AudioLevelDisplayProps as AudioLevelDisplayPropsType } from './components/audio/AudioLevelDisplay';
 import type { BackgroundAudioStatusProps as BackgroundAudioStatusPropsType } from './components/audio/BackgroundAudioStatus';
+import type { VolumeControlProps as VolumeControlPropsType } from './components/audio/VolumeControl';
 import type { FacilitatorPlaybackState as FacilitatorPlaybackStateType } from './components/session/FacilitatorPanel';
 import type {
   SessionNote as SessionNoteType,
@@ -27,6 +28,7 @@ declare global {
   type RecordingControlProps = RecordingControlPropsType;
   type AudioLevelDisplayProps = AudioLevelDisplayPropsType;
   type BackgroundAudioStatusProps = BackgroundAudioStatusPropsType;
+  type VolumeControlProps = VolumeControlPropsType;
   type FacilitatorPlaybackState = FacilitatorPlaybackStateType;
   type SessionNote = SessionNoteType;
   type SessionNotesProps = SessionNotesPropsType;
@@ -180,6 +182,7 @@ export type {
   RecordingControlProps,
   AudioLevelDisplayProps,
   BackgroundAudioStatusProps,
+  VolumeControlProps,
 } from './components/audio';
 
 export type { FacilitatorPlaybackState } from './components/session/FacilitatorPanel';
