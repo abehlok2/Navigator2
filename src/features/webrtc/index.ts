@@ -5,3 +5,5 @@ export {
   createControlChannelFromPeer,
   createControlChannelFromDataChannel,
 } from './ControlChannel';
+export { ConnectionMonitor } from './monitor';
+export type { ConnectionStats, ConnectionQuality } from './monitor';
