@@ -136,11 +136,14 @@ export const SessionPage = () => {
 
   const connectionStatus = useSessionStore((state) => state.connectionStatus);
   const userRole = useSessionStore((state) => state.userRole);
+  const userId = useSessionStore((state) => state.userId);
+  const roomPassword = useSessionStore((state) => state.roomPassword);
   const clearSession = useSessionStore((state) => state.clearSession);
   const addParticipant = useSessionStore((state) => state.addParticipant);
   const removeParticipant = useSessionStore((state) => state.removeParticipant);
   const setParticipants = useSessionStore((state) => state.setParticipants);
   const setConnectionStatus = useSessionStore((state) => state.setConnectionStatus);
+  const setRoom = useSessionStore((state) => state.setRoom);
 
   const signalingClient = useSignalingClient();
 
@@ -321,7 +324,7 @@ export const SessionPage = () => {
       if (peerManagerRef.current) {
         payload.participants.forEach((participant) => {
           // Don't create connection to ourselves
-          if (participant.id === useSessionStore.getState().userId) {
+          if (participant.id === userId) {
             return;
           }
 
@@ -536,6 +539,7 @@ export const SessionPage = () => {
     signalingClient,
     userRole,
     controlChannel,
+    userId,
   ]);
 
   const handleLeaveRoom = useCallback(() => {
@@ -560,11 +564,47 @@ export const SessionPage = () => {
       async () => {
         // The signaling client has auto-reconnect logic
         // Just try to rejoin the room if we have a roomId
-        if (roomId) {
-          await signalingClient.joinRoom(roomId, userRole || 'listener');
-        } else {
+        const currentRoomId = roomId ?? useSessionStore.getState().roomId;
+        if (!currentRoomId) {
           throw new Error('No room ID available for reconnection');
         }
+
+        const passwordToUse =
+          roomPassword ?? useSessionStore.getState().roomPassword ?? '';
+        const roleToUse = userRole ?? useSessionStore.getState().userRole;
+
+        const { participantId, participants } = await signalingClient.joinRoom(
+          currentRoomId,
+          passwordToUse ?? '',
+          roleToUse && roleToUse !== 'facilitator' ? roleToUse : undefined,
+        );
+
+        const normalizedParticipants = participants.map((participant) => ({ ...participant }));
+        const existingSelfDetails = useSessionStore
+          .getState()
+          .participants.find((participant) => participant.id === participantId);
+
+        if (!normalizedParticipants.some((participant) => participant.id === participantId)) {
+          normalizedParticipants.push(
+            existingSelfDetails ?? {
+              id: participantId,
+              username: 'You',
+              role: roleToUse ?? 'listener',
+              isOnline: true,
+            },
+          );
+        }
+
+        setRoom({
+          roomId: currentRoomId,
+          role: roleToUse ?? 'listener',
+          userId: participantId,
+          password: passwordToUse ? passwordToUse : null,
+          participants: normalizedParticipants,
+        });
+        setParticipants(normalizedParticipants);
+        setConnectionStatus('connected');
+        setSessionError(null);
       },
       (attempt, delay) => {
         // Show countdown during retry
@@ -581,7 +621,19 @@ export const SessionPage = () => {
         });
       }
     );
-  }, [sessionError, signalingClient, roomId, userRole]);
+    retryInProgressRef.current = false;
+    setRetryCountdown(undefined);
+  }, [
+    sessionError,
+    signalingClient,
+    roomId,
+    userRole,
+    roomPassword,
+    setConnectionStatus,
+    setParticipants,
+    setRoom,
+    setSessionError,
+  ]);
 
   const handleDismissError = useCallback(() => {
     setSessionError(null);

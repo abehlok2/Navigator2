@@ -12,12 +12,17 @@ import type { Participant, ParticipantRole } from '../../types/session';
 
 const SIGNALING_SERVER_URL = (() => {
   const rawUrl = import.meta.env.VITE_SIGNALING_SERVER_URL?.trim();
-  console.log(rawUrl);
   if (!rawUrl) {
     throw new Error('VITE_SIGNALING_SERVER_URL is not configured');
   }
 
-  return rawUrl.replace(/\/$/, '');
+  const normalizedUrl = rawUrl.replace(/\/$/, '');
+
+  if (import.meta.env.DEV) {
+    console.debug('[Signaling] Using server URL:', normalizedUrl);
+  }
+
+  return normalizedUrl;
 })();
 
 const MAX_RECONNECT_DELAY_MS = 15_000;
