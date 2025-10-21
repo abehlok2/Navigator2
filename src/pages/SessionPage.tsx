@@ -11,7 +11,7 @@ import type { ConnectionStatus, ParticipantRole } from '../types/session';
 import type { SignalingClientEventMap } from '../types/signaling';
 import type { SessionError } from '../features/webrtc/errors';
 import { createSessionError, handleConnectionError } from '../features/webrtc/errors';
-import { ExplorerAudioMixer, ListenerAudioMixer } from '../features/audio';
+import { ExplorerAudioMixer, ListenerAudioMixer, FacilitatorAudioMixer } from '../features/audio';
 
 const pageStyles: CSSProperties = {
   minHeight: '100vh',
@@ -85,12 +85,17 @@ const getRolePanel = (
   role: ParticipantRole | null,
   controlChannel: ControlChannel | null,
   peerManager: PeerConnectionManager | null,
+  audioMixer: ExplorerAudioMixer | ListenerAudioMixer | FacilitatorAudioMixer | null,
 ) => {
   switch (role) {
     case 'facilitator':
       return <FacilitatorPanel controlChannel={controlChannel} peerManager={peerManager} />;
     case 'explorer':
-      return <ExplorerPanel controlChannel={controlChannel} />;
+      return <ExplorerPanel
+        controlChannel={controlChannel}
+        peerManager={peerManager}
+        audioMixer={audioMixer instanceof ExplorerAudioMixer ? audioMixer : null}
+      />;
     case 'listener':
       return <ListenerPanel />;
     default:
@@ -151,12 +156,12 @@ export const SessionPage = () => {
   // Peer connection manager
   const peerManagerRef = useRef<PeerConnectionManager | null>(null);
 
-  // Audio mixers for receiving facilitator audio (explorer/listener roles)
-  const audioMixerRef = useRef<ExplorerAudioMixer | ListenerAudioMixer | null>(null);
+  // Audio mixers for receiving/mixing audio
+  const audioMixerRef = useRef<ExplorerAudioMixer | ListenerAudioMixer | FacilitatorAudioMixer | null>(null);
 
-  // Initialize audio mixer for explorer/listener roles
+  // Initialize audio mixer for all roles
   useEffect(() => {
-    if (!userRole || userRole === 'facilitator') {
+    if (!userRole) {
       return;
     }
 
@@ -167,6 +172,8 @@ export const SessionPage = () => {
         audioMixerRef.current = new ExplorerAudioMixer();
       } else if (userRole === 'listener') {
         audioMixerRef.current = new ListenerAudioMixer();
+      } else if (userRole === 'facilitator') {
+        audioMixerRef.current = new FacilitatorAudioMixer();
       }
     }
 
@@ -212,12 +219,25 @@ export const SessionPage = () => {
       manager.on('track', ({ participantId, track, streams }) => {
         console.log(`[SessionPage] Received ${track.kind} track from ${participantId}`, streams);
 
-        // Handle audio tracks from facilitator
+        // Handle audio tracks
         if (track.kind === 'audio' && streams.length > 0) {
           const stream = streams[0];
           const mixer = audioMixerRef.current;
 
-          if (mixer && userRole !== 'facilitator') {
+          if (!mixer) {
+            console.warn('[SessionPage] No audio mixer available to route track');
+            return;
+          }
+
+          if (userRole === 'facilitator') {
+            // Facilitator receiving audio from explorer
+            console.log(`[SessionPage] Routing explorer audio from ${participantId} to facilitator mixer`);
+
+            if (mixer instanceof FacilitatorAudioMixer) {
+              mixer.connectExplorerMicrophone(participantId, stream);
+            }
+          } else {
+            // Explorer or Listener receiving audio from facilitator
             console.log(`[SessionPage] Routing facilitator audio to ${userRole} mixer`);
 
             if (mixer instanceof ExplorerAudioMixer) {
@@ -316,6 +336,12 @@ export const SessionPage = () => {
     const handleParticipantLeft = ({ participantId }: SignalingClientEventMap['participantLeft']): void => {
       const participant = useSessionStore.getState().participants.find(p => p.id === participantId);
       removeParticipant(participantId);
+
+      // If we're a facilitator and an explorer left, disconnect their mic from the mixer
+      if (userRole === 'facilitator' && audioMixerRef.current instanceof FacilitatorAudioMixer) {
+        console.log(`[SessionPage] Disconnecting explorer ${participantId} from facilitator mixer`);
+        audioMixerRef.current.disconnectExplorerMicrophone(participantId);
+      }
 
       // Remove peer connection
       if (peerManagerRef.current) {
@@ -527,7 +553,7 @@ export const SessionPage = () => {
   }, [connectionStatus]);
 
   const rolePanel = useMemo(
-    () => getRolePanel(userRole, controlChannel, peerManagerRef.current),
+    () => getRolePanel(userRole, controlChannel, peerManagerRef.current, audioMixerRef.current),
     [userRole, controlChannel],
   );
 

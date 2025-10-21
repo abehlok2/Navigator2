@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 
 import { Card } from '../ui';
 import { SessionHeader } from './SessionHeader';
@@ -10,6 +10,10 @@ import { BackgroundAudioStatus } from '../audio/BackgroundAudioStatus';
 import { useSessionStore } from '../../state/session';
 import type { ControlChannel } from '../../features/webrtc/ControlChannel';
 import { LatencyCompensator } from '../../features/audio/latencyCompensation';
+import type { PeerConnectionManager } from '../../features/webrtc/peerManager';
+import { addAudioTrack, replaceAudioTrack } from '../../features/webrtc/connection';
+import type { ExplorerAudioMixer } from '../../features/audio/explorerMixer';
+import type { AudioLevelMonitor } from '../../features/audio/microphone';
 
 const containerStyles: CSSProperties = {
   display: 'flex',
@@ -41,9 +45,11 @@ const cardContentStyles: CSSProperties = {
 
 export interface ExplorerPanelProps {
   controlChannel: ControlChannel | null;
+  peerManager: PeerConnectionManager | null;
+  audioMixer: ExplorerAudioMixer | null;
 }
 
-export const ExplorerPanel = ({ controlChannel }: ExplorerPanelProps) => {
+export const ExplorerPanel = ({ controlChannel, peerManager, audioMixer }: ExplorerPanelProps) => {
   const roomId = useSessionStore((state) => state.roomId);
   const participants = useSessionStore((state) => state.participants);
   const connectionStatus = useSessionStore((state) => state.connectionStatus);
@@ -54,6 +60,12 @@ export const ExplorerPanel = ({ controlChannel }: ExplorerPanelProps) => {
 
   // Audio level state (incoming from facilitator)
   const [facilitatorAudioLevel, setFacilitatorAudioLevel] = useState(0);
+
+  // Ref to store the audio sender for the microphone track
+  const micSenderRef = useRef<RTCRtpSender | null>(null);
+
+  // Ref to store the audio level monitor for facilitator audio
+  const levelMonitorRef = useRef<AudioLevelMonitor | null>(null);
 
   // Background audio state (synced from facilitator via control messages)
   const [backgroundAudioState, setBackgroundAudioState] = useState({
@@ -68,10 +80,55 @@ export const ExplorerPanel = ({ controlChannel }: ExplorerPanelProps) => {
   const [latencyCompensator] = useState(() => new LatencyCompensator());
 
   // Microphone toggle handler
-  const handleMicrophoneToggle = useCallback((active: boolean, stream?: MediaStream) => {
+  const handleMicrophoneToggle = useCallback(async (active: boolean, stream?: MediaStream) => {
     setIsMicActive(active);
     setMicStream(stream);
-  }, []);
+
+    if (!peerManager) {
+      console.warn('[ExplorerPanel] No peer manager available');
+      return;
+    }
+
+    // Find the facilitator participant
+    const facilitator = participants.find((p) => p.role === 'facilitator');
+    if (!facilitator) {
+      console.warn('[ExplorerPanel] No facilitator found in participants');
+      return;
+    }
+
+    const facilitatorConnection = peerManager.getConnection(facilitator.id);
+    if (!facilitatorConnection) {
+      console.warn('[ExplorerPanel] No peer connection to facilitator');
+      return;
+    }
+
+    if (active && stream) {
+      try {
+        const existingSender = micSenderRef.current;
+
+        if (existingSender) {
+          // Replace the existing track
+          await replaceAudioTrack(existingSender, stream);
+          console.log('[ExplorerPanel] Replaced microphone track to facilitator');
+        } else {
+          // Add new track
+          const sender = await addAudioTrack(facilitatorConnection, stream);
+          micSenderRef.current = sender;
+          console.log('[ExplorerPanel] Added microphone track to facilitator');
+        }
+      } catch (error) {
+        console.error('[ExplorerPanel] Failed to add/replace microphone track:', error);
+      }
+    } else if (micSenderRef.current) {
+      // Microphone disabled - remove the track
+      try {
+        await micSenderRef.current.replaceTrack(null);
+        console.log('[ExplorerPanel] Removed microphone track from facilitator');
+      } catch (error) {
+        console.error('[ExplorerPanel] Failed to remove microphone track:', error);
+      }
+    }
+  }, [peerManager, participants]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -80,25 +137,52 @@ export const ExplorerPanel = ({ controlChannel }: ExplorerPanelProps) => {
       if (micStream) {
         micStream.getTracks().forEach((track) => track.stop());
       }
+
+      // Clear microphone sender if active
+      if (micSenderRef.current) {
+        micSenderRef.current.replaceTrack(null).catch(() => {
+          /* ignore cleanup errors */
+        });
+        micSenderRef.current = null;
+      }
     };
   }, [micStream]);
 
-  // Placeholder: Simulate incoming audio levels from facilitator
-  // TODO: Replace with actual WebRTC audio level monitoring
+  // Monitor facilitator audio levels
   useEffect(() => {
-    if (!connectionStatus || connectionStatus === 'disconnected') {
+    if (!audioMixer || !connectionStatus || connectionStatus === 'disconnected') {
       setFacilitatorAudioLevel(0);
+
+      // Stop monitoring if active
+      if (levelMonitorRef.current) {
+        levelMonitorRef.current.stopMonitoring();
+        levelMonitorRef.current = null;
+      }
+
       return;
     }
 
-    const interval = setInterval(() => {
-      // Simulate audio level changes for demonstration
-      // In production, this would come from actual WebRTC peer connection
-      setFacilitatorAudioLevel(Math.random() * 30);
-    }, 100);
+    // Create and start level monitor for facilitator audio
+    if (!levelMonitorRef.current) {
+      try {
+        const monitor = audioMixer.createLevelMonitor('facilitator');
+        monitor.startMonitoring((level) => {
+          setFacilitatorAudioLevel(level);
+        });
+        levelMonitorRef.current = monitor;
+        console.log('[ExplorerPanel] Started monitoring facilitator audio levels');
+      } catch (error) {
+        console.error('[ExplorerPanel] Failed to create level monitor:', error);
+      }
+    }
 
-    return () => clearInterval(interval);
-  }, [connectionStatus]);
+    return () => {
+      if (levelMonitorRef.current) {
+        levelMonitorRef.current.stopMonitoring();
+        levelMonitorRef.current = null;
+      }
+    };
+  }, [audioMixer, connectionStatus]);
 
   // Measure latency periodically for synchronized audio playback
   useEffect(() => {
