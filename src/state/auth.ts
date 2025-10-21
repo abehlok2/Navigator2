@@ -36,16 +36,23 @@ const initializeAuthState = () => {
 export const useAuthStore = create<AuthState>()((set) => ({
   ...initializeAuthState(),
   async login(email, password) {
-    const { token, user } = await loginRequest(email, password);
+    try {
+      const { token, user } = await loginRequest(email, password);
 
-    set(() => ({
-      user: {
-        ...user,
-        role: 'facilitator',
-      },
-      token,
-      isAuthenticated: true,
-    }));
+      set(() => ({
+        user: {
+          ...user,
+          role: 'facilitator',
+        },
+        token,
+        isAuthenticated: true,
+      }));
+    } catch (error) {
+      // Re-throw the error so callers can handle it
+      // This prevents unhandled promise rejections while still allowing
+      // components to catch and display the error appropriately
+      throw error;
+    }
   },
   logout() {
     clearStoredAuth();

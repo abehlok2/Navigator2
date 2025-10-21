@@ -68,6 +68,8 @@ export class SignalingClient {
 
   private currentRoomId: string | null = null;
 
+  private isReconnecting = false;
+
   private readonly handleSocketMessage = (event: MessageEvent<string>): void => {
     let message: SignalingServerMessage;
 
@@ -299,7 +301,8 @@ export class SignalingClient {
       return;
     }
 
-    if (this.reconnectTimeoutId) {
+    // Prevent multiple simultaneous reconnection attempts
+    if (this.reconnectTimeoutId || this.isReconnecting) {
       return;
     }
 
@@ -313,10 +316,18 @@ export class SignalingClient {
 
     this.reconnectTimeoutId = setTimeout(() => {
       this.reconnectTimeoutId = null;
+      this.isReconnecting = true;
 
-      this.initializeSocket(this.authToken as string, true).catch(() => {
-        this.scheduleReconnect();
-      });
+      this.initializeSocket(this.authToken as string, true)
+        .catch(() => {
+          // Only schedule another reconnect if not manually disconnected
+          if (!this.manualDisconnect) {
+            this.scheduleReconnect();
+          }
+        })
+        .finally(() => {
+          this.isReconnecting = false;
+        });
     }, delay);
   }
 
@@ -325,6 +336,7 @@ export class SignalingClient {
       clearTimeout(this.reconnectTimeoutId);
       this.reconnectTimeoutId = null;
     }
+    this.isReconnecting = false;
   }
 
   private sendSignalMessage<Type extends 'offer' | 'answer' | 'ice-candidate'>(
