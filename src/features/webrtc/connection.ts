@@ -47,12 +47,21 @@ export function setupRemoteStreamHandling(
   pc.ontrack = (event) => {
     const [remoteStream] = event.streams;
     if (remoteStream) {
+      const handleTrackEnded = (): void => {
+        handler.onTrackEnded(participantId);
+        remoteStream.removeEventListener('removetrack', handleTrackRemoved);
+        event.track.removeEventListener('ended', handleTrackEnded);
+      };
+
+      const handleTrackRemoved = (): void => {
+        handleTrackEnded();
+      };
+
+      remoteStream.addEventListener('removetrack', handleTrackRemoved);
+      event.track.addEventListener('ended', handleTrackEnded);
+
       handler.onTrack(remoteStream, participantId);
     }
-  };
-
-  pc.removetrack = () => {
-    handler.onTrackEnded(participantId);
   };
 }
 
