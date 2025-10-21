@@ -12,6 +12,7 @@ import type {
   AudioPlayerEvent as AudioPlayerEventType,
 } from './features/audio/player';
 import type { FacilitatorAudioMixer as FacilitatorAudioMixerClass } from './features/audio/facilitatorMixer';
+import type { ExplorerAudioMixer as ExplorerAudioMixerClass } from './features/audio/explorerMixer';
 import type { SessionRecorder as SessionRecorderClass } from './features/audio/recorder';
 import type { BackgroundPlayerProps as BackgroundPlayerPropsType } from './components/audio/BackgroundPlayer';
 import type { MicrophoneControlProps as MicrophoneControlPropsType } from './components/audio/MicrophoneControl';
@@ -63,6 +64,7 @@ declare global {
   type AudioPlayer = AudioPlayerClass;
   type AudioPlayerEvent = AudioPlayerEventType;
   type FacilitatorAudioMixer = FacilitatorAudioMixerClass;
+  type ExplorerAudioMixer = ExplorerAudioMixerClass;
   type SessionRecorder = SessionRecorderClass;
   type BackgroundPlayerProps = BackgroundPlayerPropsType;
   type MicrophoneControlProps = MicrophoneControlPropsType;
