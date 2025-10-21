@@ -51,6 +51,30 @@ export class UserStore {
     return user;
   }
 
+  upsertUser(input: CreateUserInput): StoredUser {
+    const email = input.email.toLowerCase();
+    const existing = this.usersByEmail.get(email);
+
+    if (!existing) {
+      return this.createUser({ ...input, email });
+    }
+
+    const salt = crypto.randomBytes(16).toString('hex');
+    const passwordHash = hashPassword(input.password, salt);
+
+    const updated: StoredUser = {
+      ...existing,
+      email,
+      displayName: input.displayName ?? existing.displayName,
+      passwordHash,
+      salt,
+    };
+
+    this.usersByEmail.set(email, updated);
+    this.usersById.set(updated.id, updated);
+    return updated;
+  }
+
   hasEmail(email: string): boolean {
     return this.usersByEmail.has(email.toLowerCase());
   }
