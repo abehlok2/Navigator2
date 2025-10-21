@@ -23,6 +23,13 @@ import type {
   ConnectionStats as ConnectionStatsType,
   ConnectionQuality as ConnectionQualityType,
 } from './features/webrtc/monitor';
+import type { WebRTCConfig as WebRTCConfigType } from './config/webrtc';
+import type {
+  IceCandidateType as IceCandidateTypeType,
+  IceGatheringSummary as IceGatheringSummaryType,
+  ConnectionType as ConnectionTypeType,
+  ManagedPeerConnection as ManagedPeerConnectionType,
+} from './features/webrtc/connection';
 import type { ConnectionQualityProps as ConnectionQualityPropsType } from './components/session/ConnectionQuality';
 import type {
   ControlMessage as ControlMessageType,
@@ -57,6 +64,11 @@ declare global {
   type ConnectionMonitor = ConnectionMonitorClass;
   type ConnectionStats = ConnectionStatsType;
   type ConnectionQuality = ConnectionQualityType;
+  type WebRTCConfig = WebRTCConfigType;
+  type IceCandidateType = IceCandidateTypeType;
+  type IceGatheringSummary = IceGatheringSummaryType;
+  type ConnectionType = ConnectionTypeType;
+  type ManagedPeerConnection = ManagedPeerConnectionType;
   type ConnectionQualityProps = ConnectionQualityPropsType;
   type ControlMessage = ControlMessageType;
   type ControlMessageTypeEnum = ControlMessageTypeEnum;
