@@ -12,13 +12,19 @@ export interface AuthState {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
-  login: (username: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => void;
 }
 
 const initializeAuthState = () => {
   const token = getStoredToken();
-  const user = getStoredUser();
+  const storedUser = getStoredUser();
+  const user = storedUser
+    ? ({
+        ...storedUser,
+        role: storedUser.role ?? 'explorer',
+      } satisfies User)
+    : null;
 
   return {
     user,
@@ -29,11 +35,14 @@ const initializeAuthState = () => {
 
 export const useAuthStore = create<AuthState>()((set) => ({
   ...initializeAuthState(),
-  async login(username, password) {
-    const { token, user } = await loginRequest(username, password);
+  async login(email, password) {
+    const { token, user } = await loginRequest(email, password);
 
     set(() => ({
-      user,
+      user: {
+        ...user,
+        role: user.role ?? 'explorer',
+      },
       token,
       isAuthenticated: true,
     }));

@@ -61,7 +61,7 @@ const readJsonBody = async (req: IncomingMessage): Promise<any> => {
   }
 };
 
-const sendJson = (res: ServerResponse, statusCode: number, payload: unknown) => {
+const sendJson = (res: Response, statusCode: number, payload: unknown) => {
   res.statusCode = statusCode;
   res.setHeader('Content-Type', 'application/json');
   res.end(JSON.stringify(payload));
@@ -244,7 +244,29 @@ const handleHealthRequest = (_req: IncomingMessage, res: ServerResponse) => {
   });
 };
 
+const setCorsHeaders = (res: ServerResponse, req: IncomingMessage) => {
+  const origin = req.headers.origin || '*';
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Max-Age', '86400');
+};
+
+const handleCorsPrelight = (res: ServerResponse) => {
+  res.statusCode = 204;
+  res.end();
+};
+
+// Modify the existing server creation
 const server = http.createServer(async (req, res) => {
+  setCorsHeaders(res, req);
+  
+  if (req.method === 'OPTIONS') {
+    handleCorsPrelight(res);
+    return;
+  }
+
   try {
     await router(req as JsonRequest, res);
   } catch (error) {

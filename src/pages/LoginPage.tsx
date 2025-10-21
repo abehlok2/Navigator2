@@ -2,30 +2,23 @@ import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { Button, Card, Input } from '../components/ui';
-import { register } from '../features/auth/client';
+import { HttpError, register } from '../features/auth/client';
 import { useAuthStore } from '../state/auth';
 
 type FieldErrors = {
-  username?: string;
+  email?: string;
   password?: string;
-};
-
-const shouldAutoRegister = (errorMessage: string): boolean => {
-  const normalizedMessage = errorMessage.toLowerCase();
-  return (
-    /not\s+found/.test(normalizedMessage) ||
-    /does\s+not\s+exist/.test(normalizedMessage) ||
-    /no\s+user/.test(normalizedMessage) ||
-    /unknown\s+user/.test(normalizedMessage)
-  );
+  displayName?: string;
 };
 
 export const LoginPage = () => {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showRegistrationFields, setShowRegistrationFields] = useState(false);
 
   const login = useAuthStore((state) => state.login);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -40,15 +33,22 @@ export const LoginPage = () => {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    const trimmedUsername = username.trim();
+    const trimmedEmail = email.trim();
+    const trimmedDisplayName = displayName.trim();
     const validationErrors: FieldErrors = {};
 
-    if (!trimmedUsername) {
-      validationErrors.username = 'Username is required';
+    if (!trimmedEmail) {
+      validationErrors.email = 'Email is required';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      validationErrors.email = 'Enter a valid email address';
     }
 
     if (!password) {
       validationErrors.password = 'Password is required';
+    }
+
+    if (showRegistrationFields && !trimmedDisplayName) {
+      validationErrors.displayName = 'Display name is required to create an account';
     }
 
     if (Object.keys(validationErrors).length > 0) {
@@ -62,26 +62,30 @@ export const LoginPage = () => {
     setIsSubmitting(true);
 
     try {
-      await login(trimmedUsername, password);
-      navigate('/home');
-    } catch (loginError) {
-      const message =
-        loginError instanceof Error ? loginError.message : 'Unable to log in. Please try again.';
+      if (showRegistrationFields) {
+        await register(trimmedEmail, password, trimmedDisplayName || undefined);
+      }
 
-      if (shouldAutoRegister(message)) {
-        try {
-          await register(trimmedUsername, password, 'explorer');
-          await login(trimmedUsername, password);
-          navigate('/home');
-        } catch (registerError) {
-          const registerMessage =
-            registerError instanceof Error
-              ? registerError.message
-              : 'Unable to register new account. Please try again later.';
-          setFormError(registerMessage);
+      await login(trimmedEmail, password);
+      navigate('/home');
+    } catch (error) {
+      if (error instanceof HttpError) {
+        if (!showRegistrationFields && error.code === 'AUTH_INVALID_CREDENTIALS') {
+          setShowRegistrationFields(true);
+          setFormError(
+            "We couldn't find an account with that email. Provide a display name below to create one.",
+          );
+        } else if (showRegistrationFields && error.code === 'AUTH_EMAIL_IN_USE') {
+          setShowRegistrationFields(false);
+          setDisplayName('');
+          setFormError('An account with that email already exists. Please log in instead.');
+        } else {
+          setFormError(error.message || 'Unable to complete request. Please try again.');
         }
+      } else if (error instanceof Error) {
+        setFormError(error.message);
       } else {
-        setFormError(message);
+        setFormError('Unable to complete request. Please try again.');
       }
     } finally {
       setIsSubmitting(false);
@@ -103,21 +107,26 @@ export const LoginPage = () => {
       <Card title="Sign in to Navigator">
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <Input
-            label="Username"
-            name="username"
-            value={username}
+            label="Email"
+            name="email"
+            type="email"
+            value={email}
             onChange={(event) => {
-              setUsername(event.target.value);
-              if (fieldErrors.username) {
+              setEmail(event.target.value);
+              if (fieldErrors.email) {
                 setFieldErrors((current) => {
-                  const { username: _removed, ...rest } = current;
+                  const { email: _removed, ...rest } = current;
                   return rest;
                 });
               }
+              if (formError && showRegistrationFields) {
+                setFormError(null);
+              }
             }}
-            placeholder="Enter your username"
-            error={fieldErrors.username}
+            placeholder="Enter your email"
+            error={fieldErrors.email}
             disabled={isSubmitting}
+            autoComplete="email"
           />
           <Input
             type="password"
@@ -136,14 +145,39 @@ export const LoginPage = () => {
             placeholder="Enter your password"
             error={fieldErrors.password}
             disabled={isSubmitting}
+            autoComplete={showRegistrationFields ? 'new-password' : 'current-password'}
           />
+          {showRegistrationFields && (
+            <Input
+              label="Display name"
+              name="displayName"
+              value={displayName}
+              onChange={(event) => {
+                setDisplayName(event.target.value);
+                if (fieldErrors.displayName) {
+                  setFieldErrors((current) => {
+                    const { displayName: _removed, ...rest } = current;
+                    return rest;
+                  });
+                }
+              }}
+              placeholder="How should others see you?"
+              error={fieldErrors.displayName}
+              disabled={isSubmitting}
+              autoComplete="nickname"
+            />
+          )}
           {formError && (
             <p role="alert" style={{ color: 'var(--color-danger, #dc2626)' }}>
               {formError}
             </p>
           )}
           <Button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? 'Signing in…' : 'Login'}
+            {isSubmitting
+              ? 'Submitting…'
+              : showRegistrationFields
+              ? 'Register & Sign in'
+              : 'Login'}
           </Button>
         </form>
       </Card>

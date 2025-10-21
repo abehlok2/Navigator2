@@ -11,6 +11,7 @@ type InputProps = {
   name?: string;
   id?: string;
   disabled?: boolean;
+  autoComplete?: string;
 };
 
 export const Input: React.FC<InputProps> = ({
@@ -23,6 +24,7 @@ export const Input: React.FC<InputProps> = ({
   name,
   id,
   disabled = false,
+  autoComplete,
 }) => {
   const generatedId = useId();
   const inputId = id ?? generatedId;
@@ -46,6 +48,7 @@ export const Input: React.FC<InputProps> = ({
         aria-invalid={Boolean(error)}
         aria-describedby={errorId}
         disabled={disabled}
+        autoComplete={autoComplete}
       />
       {error && (
         <span id={errorId} role="alert" className="ui-input-error">
