@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-type RecordingControlProps = {
+export type RecordingControlProps = {
   onStart: () => Promise<void> | void;
   onStop: () => Promise<Blob> | Blob;
   onDownload: (blob: Blob) => void;
