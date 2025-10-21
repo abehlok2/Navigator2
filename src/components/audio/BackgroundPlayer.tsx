@@ -8,6 +8,7 @@ export type BackgroundPlayerProps = {
   onStop?: () => void;
   onSeek?: (seconds: number) => void;
   onVolumeChange?: (level: number) => void;
+  onError?: (error: unknown, context: 'load' | 'play') => void;
 };
 
 const formatTime = (value: number): string => {
@@ -30,6 +31,7 @@ export const BackgroundPlayer = ({
   onStop,
   onSeek,
   onVolumeChange,
+  onError,
 }: BackgroundPlayerProps) => {
   const playerRef = useRef<AudioPlayer | null>(null);
   const onStopRef = useRef(onStop);
@@ -125,6 +127,9 @@ export const BackgroundPlayer = ({
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error(error);
+      if (onError) {
+        onError(error, 'load');
+      }
     }
   };
 
@@ -153,6 +158,9 @@ export const BackgroundPlayer = ({
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error(error);
+      if (onError) {
+        onError(error, 'play');
+      }
     }
   };
 
