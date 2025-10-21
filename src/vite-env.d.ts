@@ -35,6 +35,7 @@ import type {
   IceGatheringSummary as IceGatheringSummaryType,
   ConnectionType as ConnectionTypeType,
   ManagedPeerConnection as ManagedPeerConnectionType,
+  RemoteStreamHandler as RemoteStreamHandlerType,
 } from './features/webrtc/connection';
 import type { ConnectionQualityProps as ConnectionQualityPropsType } from './components/session/ConnectionQuality';
 import type {
@@ -79,6 +80,7 @@ declare global {
   type IceGatheringSummary = IceGatheringSummaryType;
   type ConnectionType = ConnectionTypeType;
   type ManagedPeerConnection = ManagedPeerConnectionType;
+  type RemoteStreamHandler = RemoteStreamHandlerType;
   type ConnectionQualityProps = ConnectionQualityPropsType;
   type ControlMessage = ControlMessageType;
   type ControlMessageTypeEnum = ControlMessageTypeEnum;
