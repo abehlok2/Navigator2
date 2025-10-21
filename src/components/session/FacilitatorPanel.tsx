@@ -14,8 +14,13 @@ import { Card } from '../ui';
 import { useSessionStore } from '../../state/session';
 import { getAudioLevel, stopMicrophoneStream } from '../../features/audio';
 import { SessionRecorder } from '../../features/audio/recorder';
+import type { ControlChannel } from '../../features/webrtc/ControlChannel';
 
 export type FacilitatorPlaybackState = 'playing' | 'paused' | 'stopped';
+
+export interface FacilitatorPanelProps {
+  controlChannel: ControlChannel | null;
+}
 
 const panelStyles: CSSProperties = {
   display: 'flex',
@@ -61,7 +66,7 @@ const toTitleCase = (value: string): string => {
   return value.charAt(0).toUpperCase() + value.slice(1);
 };
 
-export const FacilitatorPanel = () => {
+export const FacilitatorPanel = ({ controlChannel }: FacilitatorPanelProps) => {
   const roomId = useSessionStore((state) => state.roomId);
   const participants = useSessionStore((state) => state.participants);
   const connectionStatus = useSessionStore((state) => state.connectionStatus);
@@ -74,10 +79,12 @@ export const FacilitatorPanel = () => {
   const [recordingBlob, setRecordingBlob] = useState<Blob | null>(null);
   const [playbackPosition, setPlaybackPosition] = useState(0);
   const [backgroundVolume, setBackgroundVolume] = useState(1);
+  const [audioDuration, setAudioDuration] = useState(0);
 
   const recorderRef = useRef<SessionRecorder | null>(null);
   const levelAnimationRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const progressIntervalRef = useRef<number | null>(null);
 
   const sessionOverview = useMemo(
     () => ({
@@ -87,6 +94,48 @@ export const FacilitatorPanel = () => {
     }),
     [connectionStatus, participants.length, roomId],
   );
+
+  // Helper function to safely send control messages
+  const sendControlMessage = useCallback(
+    <T extends import('../../types/control-messages').ControlMessageType>(
+      type: T,
+      data?: Omit<import('../../types/control-messages').ControlMessageEventMap[T], 'type' | 'timestamp'>,
+    ) => {
+      if (!controlChannel || !controlChannel.isReady()) {
+        console.warn(`Control channel not ready. Cannot send message: ${type}`);
+        return;
+      }
+
+      try {
+        controlChannel.send(type, data);
+      } catch (error) {
+        console.error(`Failed to send control message (${type}):`, error);
+      }
+    },
+    [controlChannel],
+  );
+
+  // Start periodic progress updates when playing
+  const startProgressUpdates = useCallback(() => {
+    if (progressIntervalRef.current !== null) {
+      return; // Already running
+    }
+
+    progressIntervalRef.current = window.setInterval(() => {
+      sendControlMessage('audio:progress', {
+        currentTime: playbackPosition,
+        duration: audioDuration,
+      });
+    }, 1000); // Send updates every second
+  }, [sendControlMessage, playbackPosition, audioDuration]);
+
+  // Stop periodic progress updates
+  const stopProgressUpdates = useCallback(() => {
+    if (progressIntervalRef.current !== null) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    }
+  }, []);
 
   const stopLevelMonitoring = useCallback(() => {
     if (levelAnimationRef.current !== null) {
@@ -163,7 +212,10 @@ export const FacilitatorPanel = () => {
 
     await recorder.start(stream);
     setRecordingBlob(null);
-  }, [microphoneStream]);
+
+    // Send recording start message
+    sendControlMessage('recording:start', {});
+  }, [microphoneStream, sendControlMessage]);
 
   const handleRecordingStop = useCallback(async () => {
     const recorder = recorderRef.current;
@@ -174,8 +226,12 @@ export const FacilitatorPanel = () => {
 
     const blob = await recorder.stop();
     setRecordingBlob(blob);
+
+    // Send recording stop message
+    sendControlMessage('recording:stop', {});
+
     return blob;
-  }, []);
+  }, [sendControlMessage]);
 
   const handleRecordingDownload = useCallback((blob: Blob) => {
     if (!recorderRef.current) {
@@ -216,6 +272,7 @@ export const FacilitatorPanel = () => {
   useEffect(() => {
     return () => {
       stopLevelMonitoring();
+      stopProgressUpdates();
 
       const currentStream = streamRef.current;
       if (currentStream) {
@@ -230,7 +287,7 @@ export const FacilitatorPanel = () => {
         });
       }
     };
-  }, [stopLevelMonitoring]);
+  }, [stopLevelMonitoring, stopProgressUpdates]);
 
   return (
     <section style={panelStyles} aria-label="Facilitator controls">
@@ -252,22 +309,58 @@ export const FacilitatorPanel = () => {
                   setCurrentFile(file);
                   setPlaybackState('stopped');
                   setPlaybackPosition(0);
+
+                  // Note: Duration is not available immediately on file load
+                  // It will be sent with the first progress update when playing
                 }}
                 onPlay={() => {
                   setPlaybackState('playing');
+
+                  // Send audio:play message
+                  sendControlMessage('audio:play', {
+                    fileName: currentFile?.name,
+                  });
+
+                  // Start sending periodic progress updates
+                  startProgressUpdates();
                 }}
                 onPause={() => {
                   setPlaybackState('paused');
+
+                  // Send audio:pause message with current position
+                  sendControlMessage('audio:pause', {
+                    currentTime: playbackPosition,
+                  });
+
+                  // Stop sending progress updates
+                  stopProgressUpdates();
                 }}
                 onStop={() => {
                   setPlaybackState('stopped');
                   setPlaybackPosition(0);
+
+                  // Send audio:stop message
+                  sendControlMessage('audio:stop', {});
+
+                  // Stop sending progress updates
+                  stopProgressUpdates();
                 }}
                 onSeek={(seconds) => {
                   setPlaybackPosition(seconds);
+
+                  // Send immediate progress update when seeking
+                  sendControlMessage('audio:progress', {
+                    currentTime: seconds,
+                    duration: audioDuration,
+                  });
                 }}
                 onVolumeChange={(level) => {
                   setBackgroundVolume(level);
+
+                  // Send audio:volume message
+                  sendControlMessage('audio:volume', {
+                    volume: level,
+                  });
                 }}
               />
             </div>

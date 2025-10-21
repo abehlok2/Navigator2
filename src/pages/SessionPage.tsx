@@ -1,11 +1,11 @@
 import type { CSSProperties } from 'react';
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { ExplorerPanel, FacilitatorPanel, ListenerPanel, ParticipantList } from '../components/session';
 import { Button, Card } from '../components/ui';
 import { useSessionStore } from '../state/session';
-import { useSignalingClient } from '../features/webrtc';
+import { useSignalingClient, ControlChannel } from '../features/webrtc';
 import type { ConnectionStatus, ParticipantRole } from '../types/session';
 import type { SignalingClientEventMap } from '../types/signaling';
 
@@ -77,12 +77,12 @@ const connectionStatusTextColors: Record<ConnectionStatus, string> = {
   error: 'var(--text-primary, #ffffff)',
 };
 
-const getRolePanel = (role: ParticipantRole | null) => {
+const getRolePanel = (role: ParticipantRole | null, controlChannel: ControlChannel | null) => {
   switch (role) {
     case 'facilitator':
-      return <FacilitatorPanel />;
+      return <FacilitatorPanel controlChannel={controlChannel} />;
     case 'explorer':
-      return <ExplorerPanel />;
+      return <ExplorerPanel controlChannel={controlChannel} />;
     case 'listener':
       return <ListenerPanel />;
     default:
@@ -130,6 +130,43 @@ export const SessionPage = () => {
   const setConnectionStatus = useSessionStore((state) => state.setConnectionStatus);
 
   const signalingClient = useSignalingClient();
+
+  // Control channel state
+  const [controlChannel, setControlChannel] = useState<ControlChannel | null>(null);
+  const controlChannelRef = useRef<ControlChannel | null>(null);
+
+  // TODO: Initialize control channel when WebRTC peer connection is established
+  // For now, we create a placeholder that will be properly initialized when
+  // RTCPeerConnection and RTCDataChannel are available
+  useEffect(() => {
+    if (connectionStatus === 'connected' && !controlChannel) {
+      // Create a new control channel instance
+      const channel = new ControlChannel();
+
+      // Store in ref for cleanup
+      controlChannelRef.current = channel;
+      setControlChannel(channel);
+
+      // TODO: Once WebRTC peer connections are established, connect the data channel:
+      // const peerConnection = getPeerConnection(); // From WebRTC setup
+      // if (userRole === 'facilitator') {
+      //   const dataChannel = peerConnection.createDataChannel('control');
+      //   channel.setDataChannel(dataChannel);
+      // } else {
+      //   peerConnection.addEventListener('datachannel', (event) => {
+      //     channel.setDataChannel(event.channel);
+      //   });
+      // }
+    }
+
+    return () => {
+      // Cleanup control channel on unmount
+      if (controlChannelRef.current) {
+        controlChannelRef.current.close();
+        controlChannelRef.current = null;
+      }
+    };
+  }, [connectionStatus, controlChannel]);
 
   useEffect(() => {
     const handleRoomJoined = (payload: SignalingClientEventMap['roomJoined']) => {
@@ -210,7 +247,7 @@ export const SessionPage = () => {
     } satisfies CSSProperties;
   }, [connectionStatus]);
 
-  const rolePanel = useMemo(() => getRolePanel(userRole), [userRole]);
+  const rolePanel = useMemo(() => getRolePanel(userRole, controlChannel), [userRole, controlChannel]);
 
   return (
     <main style={pageStyles}>

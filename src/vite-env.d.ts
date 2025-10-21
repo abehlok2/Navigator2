@@ -17,6 +17,21 @@ import type {
   SessionNote as SessionNoteType,
   SessionNotesProps as SessionNotesPropsType,
 } from './components/session/SessionNotes';
+import type { ControlChannel as ControlChannelClass } from './features/webrtc/ControlChannel';
+import type {
+  ControlMessage as ControlMessageType,
+  ControlMessageType as ControlMessageTypeEnum,
+  ControlMessageHandler as ControlMessageHandlerType,
+  ControlMessageEventMap as ControlMessageEventMapType,
+  AudioPlayMessage as AudioPlayMessageType,
+  AudioPauseMessage as AudioPauseMessageType,
+  AudioStopMessage as AudioStopMessageType,
+  AudioProgressMessage as AudioProgressMessageType,
+  AudioVolumeMessage as AudioVolumeMessageType,
+  AudioFileLoadedMessage as AudioFileLoadedMessageType,
+  RecordingStartMessage as RecordingStartMessageType,
+  RecordingStopMessage as RecordingStopMessageType,
+} from './types/control-messages';
 
 declare global {
   type AudioAnalyserEntry = AudioAnalyserEntryType;
@@ -32,6 +47,19 @@ declare global {
   type FacilitatorPlaybackState = FacilitatorPlaybackStateType;
   type SessionNote = SessionNoteType;
   type SessionNotesProps = SessionNotesPropsType;
+  type ControlChannel = ControlChannelClass;
+  type ControlMessage = ControlMessageType;
+  type ControlMessageTypeEnum = ControlMessageTypeEnum;
+  type ControlMessageHandler<T extends ControlMessageTypeEnum = ControlMessageTypeEnum> = ControlMessageHandlerType<T>;
+  type ControlMessageEventMap = ControlMessageEventMapType;
+  type AudioPlayMessage = AudioPlayMessageType;
+  type AudioPauseMessage = AudioPauseMessageType;
+  type AudioStopMessage = AudioStopMessageType;
+  type AudioProgressMessage = AudioProgressMessageType;
+  type AudioVolumeMessage = AudioVolumeMessageType;
+  type AudioFileLoadedMessage = AudioFileLoadedMessageType;
+  type RecordingStartMessage = RecordingStartMessageType;
+  type RecordingStopMessage = RecordingStopMessageType;
 }
 
 export {};
@@ -187,5 +215,20 @@ export type {
 
 export type { FacilitatorPlaybackState } from './components/session/FacilitatorPanel';
 export type { SessionNote, SessionNotesProps } from './components/session/SessionNotes';
+export type { ControlChannel } from './features/webrtc/ControlChannel';
+export type {
+  ControlMessage,
+  ControlMessageType,
+  ControlMessageHandler,
+  ControlMessageEventMap,
+  AudioPlayMessage,
+  AudioPauseMessage,
+  AudioStopMessage,
+  AudioProgressMessage,
+  AudioVolumeMessage,
+  AudioFileLoadedMessage,
+  RecordingStartMessage,
+  RecordingStopMessage,
+} from './types/control-messages';
 
 export {};
