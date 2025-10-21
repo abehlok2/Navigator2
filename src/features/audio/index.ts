@@ -4,3 +4,4 @@ export type { AudioPlayerEvent } from './player';
 export * from './microphone';
 export { FacilitatorAudioMixer } from './facilitatorMixer';
 export { ExplorerAudioMixer } from './explorerMixer';
+export { ListenerAudioMixer } from './listenerMixer';
