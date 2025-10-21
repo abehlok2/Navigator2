@@ -4,6 +4,7 @@ export type RecordingControlProps = {
   onStart: () => Promise<void> | void;
   onStop: () => Promise<Blob> | Blob;
   onDownload: (blob: Blob) => void;
+  onError?: (error: unknown, context: 'start' | 'stop' | 'download') => void;
 };
 
 const formatDuration = (durationInSeconds: number): string => {
@@ -14,7 +15,7 @@ const formatDuration = (durationInSeconds: number): string => {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 };
 
-export const RecordingControl = ({ onStart, onStop, onDownload }: RecordingControlProps) => {
+export const RecordingControl = ({ onStart, onStop, onDownload, onError }: RecordingControlProps) => {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingStart, setRecordingStart] = useState<number | null>(null);
   const [duration, setDuration] = useState(0);
@@ -60,10 +61,13 @@ export const RecordingControl = ({ onStart, onStop, onDownload }: RecordingContr
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to start recording.';
       setError(message);
+      if (onError) {
+        onError(err, 'start');
+      }
     } finally {
       setIsProcessing(false);
     }
-  }, [isRecording, isProcessing, onStart]);
+  }, [isRecording, isProcessing, onError, onStart]);
 
   const handleStop = useCallback(async () => {
     if (!isRecording || isProcessing) {
@@ -81,12 +85,15 @@ export const RecordingControl = ({ onStart, onStop, onDownload }: RecordingContr
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to stop recording.';
       setError(message);
+      if (onError) {
+        onError(err, 'stop');
+      }
     } finally {
       setIsRecording(false);
       setRecordingStart(null);
       setIsProcessing(false);
     }
-  }, [isRecording, isProcessing, onStop, recordingStart]);
+  }, [isRecording, isProcessing, onError, onStop, recordingStart]);
 
   const handleDownload = useCallback(() => {
     if (!recordedBlob || isProcessing) {
@@ -98,8 +105,11 @@ export const RecordingControl = ({ onStart, onStop, onDownload }: RecordingContr
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to download recording.';
       setError(message);
+      if (onError) {
+        onError(err, 'download');
+      }
     }
-  }, [isProcessing, onDownload, recordedBlob]);
+  }, [isProcessing, onDownload, onError, recordedBlob]);
 
   return (
     <div className="recording-control" aria-live="polite">

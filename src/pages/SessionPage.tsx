@@ -3,11 +3,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { ExplorerPanel, FacilitatorPanel, ListenerPanel, ParticipantList } from '../components/session';
+import { ErrorDisplay } from '../components/session/ErrorDisplay';
 import { Button, Card } from '../components/ui';
 import { useSessionStore } from '../state/session';
 import { useSignalingClient, ControlChannel } from '../features/webrtc';
 import type { ConnectionStatus, ParticipantRole } from '../types/session';
 import type { SignalingClientEventMap } from '../types/signaling';
+import type { SessionError } from '../features/webrtc/errors';
+import { createSessionError, handleConnectionError } from '../features/webrtc/errors';
 
 const pageStyles: CSSProperties = {
   minHeight: '100vh',
@@ -131,6 +134,11 @@ export const SessionPage = () => {
 
   const signalingClient = useSignalingClient();
 
+  // Error handling state
+  const [sessionError, setSessionError] = useState<SessionError | null>(null);
+  const [retryCountdown, setRetryCountdown] = useState<number | undefined>(undefined);
+  const retryInProgressRef = useRef(false);
+
   // Control channel state
   const [controlChannel, setControlChannel] = useState<ControlChannel | null>(null);
   const controlChannelRef = useRef<ControlChannel | null>(null);
@@ -183,11 +191,24 @@ export const SessionPage = () => {
     };
 
     const handleParticipantLeft = ({ participantId }: SignalingClientEventMap['participantLeft']): void => {
+      const participant = useSessionStore.getState().participants.find(p => p.id === participantId);
       removeParticipant(participantId);
+
+      // Show notification for peer disconnection
+      if (participant) {
+        setSessionError({
+          type: 'peer-disconnected',
+          participantName: participant.username,
+        });
+      }
     };
 
     const handleConnected = (): void => {
       setConnectionStatus('connected');
+      // Clear any connection errors on successful connection
+      setSessionError(null);
+      setRetryCountdown(undefined);
+      retryInProgressRef.current = false;
     };
 
     const handleReconnecting = (_payload: SignalingClientEventMap['reconnecting']): void => {
@@ -196,10 +217,20 @@ export const SessionPage = () => {
 
     const handleDisconnected = (_payload: SignalingClientEventMap['disconnected']): void => {
       setConnectionStatus('disconnected');
+
+      // Show connection lost error
+      const error = createSessionError(new Error('Connection to server lost'));
+      setSessionError(error);
     };
 
-    const handleError = (_payload: SignalingClientEventMap['error']): void => {
+    const handleError = (payload: SignalingClientEventMap['error']): void => {
       setConnectionStatus('error');
+
+      // Create user-friendly error from signaling error
+      const error = createSessionError(
+        new Error(payload.message || 'Connection error occurred')
+      );
+      setSessionError(error);
     };
 
     signalingClient.on('roomJoined', handleRoomJoined);
@@ -239,6 +270,46 @@ export const SessionPage = () => {
     navigate('/home');
   }, [clearSession, navigate, signalingClient]);
 
+  const handleRetryConnection = useCallback(async () => {
+    if (retryInProgressRef.current || !sessionError || sessionError.type !== 'connection-failed') {
+      return;
+    }
+
+    retryInProgressRef.current = true;
+
+    await handleConnectionError(
+      sessionError,
+      async () => {
+        // The signaling client has auto-reconnect logic
+        // Just try to rejoin the room if we have a roomId
+        if (roomId) {
+          await signalingClient.joinRoom(roomId, userRole || 'listener');
+        } else {
+          throw new Error('No room ID available for reconnection');
+        }
+      },
+      (attempt, delay) => {
+        // Show countdown during retry
+        setRetryCountdown(Math.ceil(delay / 1000));
+      },
+      () => {
+        // Failed all retry attempts
+        retryInProgressRef.current = false;
+        setRetryCountdown(undefined);
+        setSessionError({
+          type: 'connection-failed',
+          message: 'Unable to reconnect to the session. Please refresh the page or leave the room.',
+          canRetry: false,
+        });
+      }
+    );
+  }, [sessionError, signalingClient, roomId, userRole]);
+
+  const handleDismissError = useCallback(() => {
+    setSessionError(null);
+    setRetryCountdown(undefined);
+  }, []);
+
   const statusBadgeStyles = useMemo(() => {
     return {
       ...statusBadgeBaseStyles,
@@ -268,6 +339,16 @@ export const SessionPage = () => {
           </span>
         </div>
       </header>
+
+      {/* Error Display */}
+      {sessionError && (
+        <ErrorDisplay
+          error={sessionError}
+          onRetry={sessionError.type === 'connection-failed' ? handleRetryConnection : undefined}
+          onDismiss={handleDismissError}
+          retryCountdown={retryCountdown}
+        />
+      )}
 
       <section style={contentStyles}>
         <div>{rolePanel}</div>

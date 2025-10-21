@@ -1,0 +1,119 @@
+/* Error Display Component Styles */
+
+.error-display {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-radius: 0.5rem;
+  border: 1px solid;
+  margin-bottom: 1rem;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.error-display--error {
+  background-color: rgba(255, 74, 74, 0.1);
+  border-color: var(--danger, #ff4a4a);
+}
+
+.error-display--warning {
+  background-color: rgba(250, 204, 21, 0.1);
+  border-color: #facc15;
+}
+
+.error-display__content {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.error-display__icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.error-display--error .error-display__icon {
+  color: var(--danger, #ff4a4a);
+}
+
+.error-display--warning .error-display__icon {
+  color: #facc15;
+}
+
+.error-display__message-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.error-display__message {
+  color: var(--text-primary, #ffffff);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.error-display__help {
+  color: var(--text-secondary, #a0a0a0);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.error-display__countdown {
+  color: var(--text-secondary, #a0a0a0);
+  font-size: 0.875rem;
+  font-style: italic;
+}
+
+.error-display__actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+  .error-display {
+    padding: 0.875rem 1rem;
+  }
+
+  .error-display__content {
+    gap: 0.75rem;
+  }
+
+  .error-display__icon {
+    font-size: 1.25rem;
+  }
+
+  .error-display__message {
+    font-size: 0.95rem;
+  }
+
+  .error-display__help,
+  .error-display__countdown {
+    font-size: 0.825rem;
+  }
+
+  .error-display__actions {
+    gap: 0.5rem;
+    justify-content: stretch;
+  }
+
+  .error-display__actions .ui-button {
+    flex: 1;
+  }
+}

@@ -8,6 +8,7 @@ import {
 } from 'react';
 
 import { BackgroundPlayer, MicrophoneControl, RecordingControl } from '../audio';
+import { ErrorDisplay } from './ErrorDisplay';
 import { ParticipantList } from './ParticipantList';
 import { SessionHeader } from './SessionHeader';
 import { Card } from '../ui';
@@ -15,6 +16,8 @@ import { useSessionStore } from '../../state/session';
 import { getAudioLevel, stopMicrophoneStream } from '../../features/audio';
 import { SessionRecorder } from '../../features/audio/recorder';
 import type { ControlChannel } from '../../features/webrtc/ControlChannel';
+import type { SessionError } from '../../features/webrtc/errors';
+import { createSessionError } from '../../features/webrtc/errors';
 
 export type FacilitatorPlaybackState = 'playing' | 'paused' | 'stopped';
 
@@ -80,6 +83,7 @@ export const FacilitatorPanel = ({ controlChannel }: FacilitatorPanelProps) => {
   const [playbackPosition, setPlaybackPosition] = useState(0);
   const [backgroundVolume, setBackgroundVolume] = useState(1);
   const [audioDuration, setAudioDuration] = useState(0);
+  const [sessionError, setSessionError] = useState<SessionError | null>(null);
 
   const recorderRef = useRef<SessionRecorder | null>(null);
   const levelAnimationRef = useRef<number | null>(null);
@@ -245,6 +249,36 @@ export const FacilitatorPanel = ({ controlChannel }: FacilitatorPanelProps) => {
     }
   }, []);
 
+  // Error handlers
+  const handleMicrophoneError = useCallback((error: unknown) => {
+    console.error('Microphone error:', error);
+    const sessionErr = createSessionError(error, 'microphone');
+    setSessionError(sessionErr);
+  }, []);
+
+  const handleRecordingError = useCallback((error: unknown, context: 'start' | 'stop' | 'download') => {
+    console.error('Recording error:', error, context);
+    const reason = error instanceof Error ? error.message : 'Unknown error occurred';
+    setSessionError({
+      type: 'recording-failed',
+      reason,
+    });
+  }, []);
+
+  const handleAudioLoadError = useCallback((error: unknown, context: 'load' | 'play') => {
+    console.error('Audio error:', error, context);
+    if (context === 'load') {
+      setSessionError({
+        type: 'audio-load-failed',
+        filename: currentFile?.name || 'audio file',
+      });
+    }
+  }, [currentFile]);
+
+  const handleDismissError = useCallback(() => {
+    setSessionError(null);
+  }, []);
+
   useEffect(() => {
     const activeStream = microphoneStream;
     if (!activeStream) {
@@ -293,6 +327,14 @@ export const FacilitatorPanel = ({ controlChannel }: FacilitatorPanelProps) => {
     <section style={panelStyles} aria-label="Facilitator controls">
       <SessionHeader {...sessionOverview} />
 
+      {/* Error Display */}
+      {sessionError && (
+        <ErrorDisplay
+          error={sessionError}
+          onDismiss={handleDismissError}
+        />
+      )}
+
       <Card title="Facilitator Control Center">
         <div style={controlsWrapperStyles}>
           <div style={sectionStyles}>
@@ -309,10 +351,12 @@ export const FacilitatorPanel = ({ controlChannel }: FacilitatorPanelProps) => {
                   setCurrentFile(file);
                   setPlaybackState('stopped');
                   setPlaybackPosition(0);
+                  setSessionError(null); // Clear any previous load errors
 
                   // Note: Duration is not available immediately on file load
                   // It will be sent with the first progress update when playing
                 }}
+                onError={handleAudioLoadError}
                 onPlay={() => {
                   setPlaybackState('playing');
 
@@ -375,6 +419,7 @@ export const FacilitatorPanel = ({ controlChannel }: FacilitatorPanelProps) => {
               isActive={isMicrophoneActive}
               level={audioLevels.microphone}
               onToggle={handleMicrophoneToggle}
+              onError={handleMicrophoneError}
             />
           </div>
 
@@ -392,6 +437,7 @@ export const FacilitatorPanel = ({ controlChannel }: FacilitatorPanelProps) => {
                 setRecordingBlob(blob);
                 handleRecordingDownload(blob);
               }}
+              onError={handleRecordingError}
             />
           </div>
         </div>

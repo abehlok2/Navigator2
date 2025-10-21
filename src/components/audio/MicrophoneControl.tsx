@@ -11,9 +11,10 @@ export interface MicrophoneControlProps {
   onToggle: (active: boolean, stream?: MediaStream) => void;
   isActive: boolean;
   level?: number;
+  onError?: (error: unknown) => void;
 }
 
-export function MicrophoneControl({ onToggle, isActive, level }: MicrophoneControlProps) {
+export function MicrophoneControl({ onToggle, isActive, level, onError }: MicrophoneControlProps) {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | undefined>();
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -77,9 +78,12 @@ export function MicrophoneControl({ onToggle, isActive, level }: MicrophoneContr
       } catch (error) {
         console.error('Unable to access microphone:', error);
         cleanupStream();
+        if (onError) {
+          onError(error);
+        }
       }
     },
-    [cleanupStream, onToggle, startLevelUpdates, stream]
+    [cleanupStream, onError, onToggle, startLevelUpdates, stream]
   );
 
   const refreshDevices = useCallback(async () => {
@@ -94,6 +98,7 @@ export function MicrophoneControl({ onToggle, isActive, level }: MicrophoneContr
       });
     } catch (error) {
       console.error('Unable to enumerate microphone devices:', error);
+      // Device enumeration errors are less critical, don't propagate
     }
   }, []);
 
