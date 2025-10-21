@@ -8,3 +8,11 @@ export interface Participant {
 }
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+
+export interface SessionOverview {
+  roomId: string;
+  participantCount: number;
+  connectionStatus: ConnectionStatus;
+}
+
+export type LeaveRoomCallback = () => void;
