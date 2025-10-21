@@ -1,4 +1,1 @@
-export const TODOAudioComponent = () => {
-  // TODO: Implement audio components
-  return null;
-};
+export { RecordingControl } from './RecordingControl';

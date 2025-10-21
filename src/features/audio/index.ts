@@ -1,3 +1,1 @@
-export const TODOAudioFeature = () => {
-  // TODO: Implement audio feature logic
-};
+export { SessionRecorder } from './recorder';
