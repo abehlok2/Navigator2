@@ -11,7 +11,9 @@ export type AudioControlMessageType =
   | 'audio:stop'
   | 'audio:progress'
   | 'audio:volume'
-  | 'audio:file-loaded';
+  | 'audio:file-loaded'
+  | 'audio:next-track'
+  | 'audio:crossfade-start';
 
 /**
  * Recording control message types
@@ -81,6 +83,18 @@ export interface AudioFileLoadedMessage extends BaseControlMessage<'audio:file-l
   duration: number;
 }
 
+export interface AudioNextTrackMessage extends BaseControlMessage<'audio:next-track'> {
+  nextFileName: string;
+  nextDuration: number;
+  crossfadeDuration: number; // Duration in seconds
+}
+
+export interface AudioCrossfadeStartMessage extends BaseControlMessage<'audio:crossfade-start'> {
+  fromFileName: string;
+  toFileName: string;
+  duration: number; // Duration in seconds
+}
+
 /**
  * Recording control messages
  */
@@ -128,6 +142,8 @@ export type ControlMessage =
   | AudioProgressMessage
   | AudioVolumeMessage
   | AudioFileLoadedMessage
+  | AudioNextTrackMessage
+  | AudioCrossfadeStartMessage
   | RecordingStartMessage
   | RecordingStopMessage
   | ChannelOpenMessage

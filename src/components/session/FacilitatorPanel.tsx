@@ -8,6 +8,7 @@ import {
 } from 'react';
 
 import { BackgroundPlayer, MicrophoneControl, RecordingControl } from '../audio';
+import { NextTrackControl } from '../audio/NextTrackControl';
 import { ErrorDisplay } from './ErrorDisplay';
 import { ParticipantList } from './ParticipantList';
 import { SessionHeader } from './SessionHeader';
@@ -109,6 +110,9 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
   const [audioDuration, setAudioDuration] = useState(0);
   const [sessionError, setSessionError] = useState<SessionError | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [nextTrackFile, setNextTrackFile] = useState<File | null>(null);
+  const [isCrossfading, setIsCrossfading] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
 
   const recorderRef = useRef<FacilitatorRecorder | null>(null);
   const levelAnimationRef = useRef<number | null>(null);
@@ -702,6 +706,81 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
     [audioPlayer, mixer, sendControlMessage],
   );
 
+  const handleNextTrackLoad = useCallback(
+    (file: File, nextAudioElement: HTMLAudioElement) => {
+      console.log('[FacilitatorPanel] Loading next track:', file.name);
+      setNextTrackFile(file);
+
+      if (mixer) {
+        mixer.connectNextBackgroundAudio(nextAudioElement);
+        console.log('[FacilitatorPanel] Next track connected to mixer');
+      }
+    },
+    [mixer],
+  );
+
+  const handleCrossfade = useCallback(
+    async (crossfadeDuration: number) => {
+      if (!mixer || !nextTrackFile || !audioPlayer) {
+        console.warn('[FacilitatorPanel] Cannot crossfade: missing mixer, next track, or audio player');
+        return;
+      }
+
+      if (isCrossfading) {
+        console.warn('[FacilitatorPanel] Crossfade already in progress');
+        return;
+      }
+
+      try {
+        setIsCrossfading(true);
+        console.log('[FacilitatorPanel] Starting crossfade with duration:', crossfadeDuration);
+
+        // Send crossfade start message to all participants
+        sendControlMessage('audio:crossfade-start', {
+          fromFileName: currentFile?.name || '',
+          toFileName: nextTrackFile.name,
+          duration: crossfadeDuration,
+        });
+
+        // Perform the crossfade
+        await mixer.performCrossfade(backgroundVolume, crossfadeDuration);
+
+        // Update state: next track becomes current
+        const nextAudio = mixer.getNextBackgroundAudioElement();
+        if (nextAudio) {
+          setAudioPlayer(nextAudio);
+          setCurrentFile(nextTrackFile);
+          setAudioDuration(nextAudio.duration);
+          setPlaybackPosition(0);
+
+          // Send the next track message
+          sendControlMessage('audio:next-track', {
+            nextFileName: nextTrackFile.name,
+            nextDuration: nextAudio.duration,
+            crossfadeDuration,
+          });
+
+          // Send file loaded message for the new current track
+          sendControlMessage('audio:file-loaded', {
+            fileName: nextTrackFile.name,
+            duration: nextAudio.duration,
+          });
+        }
+
+        setNextTrackFile(null);
+        console.log('[FacilitatorPanel] Crossfade complete');
+      } catch (error) {
+        console.error('[FacilitatorPanel] Crossfade failed:', error);
+        setSessionError(
+          createSessionError(error, 'crossfade'),
+        );
+      } finally {
+        setIsCrossfading(false);
+      }
+    },
+    [mixer, nextTrackFile, audioPlayer, isCrossfading, currentFile, backgroundVolume, sendControlMessage],
+  );
+
   useEffect(() => {
     const newMixer = new FacilitatorAudioMixer();
     const newRecorder = new FacilitatorRecorder();
@@ -915,6 +994,15 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
                   onStop={handleStop}
                   onSeek={handleSeek}
                   onVolumeChange={handleBackgroundVolumeChange}
+                  onUploadedFilesChange={setUploadedFiles}
+                />
+                <NextTrackControl
+                  uploadedFiles={uploadedFiles}
+                  currentFile={currentFile}
+                  onNextTrackLoad={handleNextTrackLoad}
+                  onCrossfade={handleCrossfade}
+                  isPlaying={playbackState === 'playing'}
+                  isCrossfading={isCrossfading}
                 />
               </div>
             </div>

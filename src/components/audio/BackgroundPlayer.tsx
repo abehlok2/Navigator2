@@ -8,6 +8,7 @@ export type BackgroundPlayerProps = {
   onSeek?: (seconds: number) => void;
   onVolumeChange?: (level: number) => void;
   onError?: (error: unknown, context: 'load' | 'play') => void;
+  onUploadedFilesChange?: (files: File[]) => void;
 };
 
 const formatTime = (value: number): string => {
@@ -31,6 +32,7 @@ export const BackgroundPlayer = ({
   onSeek,
   onVolumeChange,
   onError,
+  onUploadedFilesChange,
 }: BackgroundPlayerProps) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
@@ -41,6 +43,7 @@ export const BackgroundPlayer = ({
   const onSeekRef = useRef(onSeek);
   const onVolumeChangeRef = useRef(onVolumeChange);
   const onErrorRef = useRef(onError);
+  const onUploadedFilesChangeRef = useRef(onUploadedFilesChange);
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [currentFile, setCurrentFile] = useState<File | null>(null);
@@ -76,6 +79,14 @@ export const BackgroundPlayer = ({
   useEffect(() => {
     onErrorRef.current = onError;
   }, [onError]);
+
+  useEffect(() => {
+    onUploadedFilesChangeRef.current = onUploadedFilesChange;
+  }, [onUploadedFilesChange]);
+
+  useEffect(() => {
+    onUploadedFilesChangeRef.current?.(uploadedFiles);
+  }, [uploadedFiles]);
 
   useEffect(() => {
     const audio = new Audio();

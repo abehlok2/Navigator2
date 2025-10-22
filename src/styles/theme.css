@@ -117,3 +117,135 @@ body {
   font-size: 1.1rem;
   color: var(--text-primary);
 }
+
+/* Next Track Control */
+.next-track-control {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin-top: 1rem;
+}
+
+.next-track-control__title {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.next-track-control__file-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.next-track-control__file-select label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.next-track-control__select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.next-track-control__select:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.next-track-control__select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.next-track-control__queued-file {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+  padding: 0.5rem;
+  background-color: var(--bg-primary);
+  border-radius: 0.375rem;
+  border-left: 3px solid var(--accent);
+}
+
+.next-track-control__crossfade-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.next-track-control__crossfade-settings label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.next-track-control__crossfade-settings input[type="range"] {
+  width: 100%;
+  cursor: pointer;
+}
+
+.next-track-control__duration-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.next-track-control__actions {
+  margin-bottom: 0.5rem;
+}
+
+.next-track-control__crossfade-button {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid transparent;
+  border-radius: 0.375rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text-primary);
+  background-color: var(--success);
+  transition: background-color 0.2s;
+}
+
+.next-track-control__crossfade-button:not(:disabled):hover {
+  background-color: #3ce03c;
+}
+
+.next-track-control__crossfade-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  background-color: var(--bg-primary);
+}
+
+.next-track-control__status {
+  margin-top: 0.5rem;
+}
+
+.next-track-control__status-indicator {
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--accent);
+  padding: 0.5rem;
+  background-color: var(--bg-primary);
+  border-radius: 0.375rem;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
