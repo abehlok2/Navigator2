@@ -13,7 +13,9 @@ export type AudioControlMessageType =
   | 'audio:volume'
   | 'audio:file-loaded'
   | 'audio:next-track'
-  | 'audio:crossfade-start';
+  | 'audio:crossfade-start'
+  | 'audio:facilitator-volume'
+  | 'audio:explorer-volume';
 
 /**
  * Recording control message types
@@ -95,6 +97,15 @@ export interface AudioCrossfadeStartMessage extends BaseControlMessage<'audio:cr
   duration: number; // Duration in seconds
 }
 
+export interface AudioFacilitatorVolumeMessage extends BaseControlMessage<'audio:facilitator-volume'> {
+  volume: number; // 0-1
+}
+
+export interface AudioExplorerVolumeMessage extends BaseControlMessage<'audio:explorer-volume'> {
+  explorerId: string;
+  volume: number; // 0-1
+}
+
 /**
  * Recording control messages
  */
@@ -144,6 +155,8 @@ export type ControlMessage =
   | AudioFileLoadedMessage
   | AudioNextTrackMessage
   | AudioCrossfadeStartMessage
+  | AudioFacilitatorVolumeMessage
+  | AudioExplorerVolumeMessage
   | RecordingStartMessage
   | RecordingStopMessage
   | ChannelOpenMessage
