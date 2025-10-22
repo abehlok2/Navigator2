@@ -4,6 +4,7 @@ export class FacilitatorAudioMixer {
   private explorerMicSources: Map<string, MediaStreamAudioSourceNode> = new Map();
   private explorerMicGains: Map<string, GainNode> = new Map();
   private backgroundSource: MediaElementAudioSourceNode | null = null;
+  private backgroundAudioElement: HTMLAudioElement | null = null;
   private micGain: GainNode;
   private backgroundGain: GainNode;
   private masterGain: GainNode;
@@ -91,12 +92,29 @@ export class FacilitatorAudioMixer {
   }
 
   connectBackgroundAudio(audioElement: HTMLAudioElement): void {
-    if (this.backgroundSource) {
-      this.backgroundSource.disconnect();
+    // If the audio element hasn't changed and we already have a source, just ensure it's connected
+    if (this.backgroundAudioElement === audioElement && this.backgroundSource) {
+      // Already connected to this audio element, no need to recreate the source
+      // Just ensure it's connected to the background gain
+      try {
+        this.backgroundSource.connect(this.backgroundGain);
+      } catch (error) {
+        // Already connected, ignore the error
+      }
+      return;
     }
 
+    // Disconnect previous source if it exists
+    if (this.backgroundSource) {
+      this.backgroundSource.disconnect();
+      this.backgroundSource = null;
+    }
+
+    // Create new source for the new audio element
+    // Note: createMediaElementSource can only be called once per HTMLAudioElement
     this.backgroundSource = this.audioContext.createMediaElementSource(audioElement);
     this.backgroundSource.connect(this.backgroundGain);
+    this.backgroundAudioElement = audioElement;
   }
 
   getMixedStream(): MediaStream {
@@ -138,6 +156,7 @@ export class FacilitatorAudioMixer {
       this.backgroundSource.disconnect();
       this.backgroundSource = null;
     }
+    this.backgroundAudioElement = null;
 
     void this.audioContext.close();
   }
