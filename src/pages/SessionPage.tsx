@@ -7,6 +7,7 @@ import { ErrorDisplay } from '../components/session/ErrorDisplay';
 import { Button, Card } from '../components/ui';
 import { useSessionStore } from '../state/session';
 import { useSignalingClient, ControlChannel, PeerConnectionManager } from '../features/webrtc';
+import { getStoredToken } from '../features/auth/client';
 import type { ConnectionStatus, ParticipantRole } from '../types/session';
 import type { SignalingClientEventMap } from '../types/signaling';
 import type { SessionError } from '../features/webrtc/errors';
@@ -196,11 +197,11 @@ export const SessionPage = () => {
           const roleToUse = sessionState.userRole;
 
           // Connect to signaling server (will reuse existing connection if already connected)
-          const token = localStorage.getItem('navigator.auth.token');
+          const token = getStoredToken();
           if (!token) {
             throw new Error('No authentication token found');
           }
-          await signalingClient.connect(JSON.parse(token));
+          await signalingClient.connect(token);
 
           const { participantId, participants } = await signalingClient.joinRoom(
             roomId,
