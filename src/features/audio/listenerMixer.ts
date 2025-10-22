@@ -14,6 +14,10 @@ export class ListenerAudioMixer {
     this.masterGain.connect(this.audioContext.destination);
   }
 
+  private getSourceKey(participantId: string, label: string): string {
+    return `${participantId}::${label}`;
+  }
+
   addAudioSource(participantId: string, stream: MediaStream, label: string): void {
     console.log(`[ListenerAudioMixer] Adding audio source for ${participantId} (${label})`);
     console.log(`[ListenerAudioMixer] Stream active: ${stream.active}, track count: ${stream.getAudioTracks().length}`);
@@ -23,8 +27,10 @@ export class ListenerAudioMixer {
       console.log(`[ListenerAudioMixer] Track ${index}: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
     });
 
+    const sourceKey = this.getSourceKey(participantId, label);
+
     // Remove existing if present
-    this.removeAudioSource(participantId);
+    this.removeAudioSource(participantId, label);
 
     // Verify stream has active audio tracks
     const audioTracks = stream.getAudioTracks();
@@ -48,33 +54,45 @@ export class ListenerAudioMixer {
     console.log(`[ListenerAudioMixer] Successfully connected audio source for ${participantId}`);
 
     // Store references
-    this.sources.set(participantId, source);
-    this.gains.set(participantId, gain);
+    this.sources.set(sourceKey, source);
+    this.gains.set(sourceKey, gain);
 
     // Attempt to resume audio context immediately
     void this.resumeAudioContext();
   }
 
-  removeAudioSource(participantId: string): void {
-    const source = this.sources.get(participantId);
-    const gain = this.gains.get(participantId);
+  removeAudioSource(participantId: string, label?: string): void {
+    const keysToRemove = label
+      ? [this.getSourceKey(participantId, label)]
+      : Array.from(this.sources.keys()).filter((key) => key.startsWith(`${participantId}::`));
 
-    if (source) {
-      source.disconnect();
-      this.sources.delete(participantId);
-    }
+    keysToRemove.forEach((key) => {
+      const source = this.sources.get(key);
+      const gain = this.gains.get(key);
 
-    if (gain) {
-      gain.disconnect();
-      this.gains.delete(participantId);
-    }
+      if (source) {
+        source.disconnect();
+        this.sources.delete(key);
+      }
+
+      if (gain) {
+        gain.disconnect();
+        this.gains.delete(key);
+      }
+    });
   }
 
-  setSourceVolume(participantId: string, value: number): void {
-    const gain = this.gains.get(participantId);
-    if (gain) {
-      gain.gain.setValueAtTime(value, this.audioContext.currentTime);
-    }
+  setSourceVolume(participantId: string, value: number, label?: string): void {
+    const keys = label
+      ? [this.getSourceKey(participantId, label)]
+      : Array.from(this.gains.keys()).filter((key) => key.startsWith(`${participantId}::`));
+
+    keys.forEach((key) => {
+      const gain = this.gains.get(key);
+      if (gain) {
+        gain.gain.setValueAtTime(value, this.audioContext.currentTime);
+      }
+    });
   }
 
   setMasterVolume(value: number): void {
@@ -102,9 +120,9 @@ export class ListenerAudioMixer {
 
     // Log active sources and gains
     console.log(`[ListenerAudioMixer] Active sources: ${this.sources.size}, Active gains: ${this.gains.size}`);
-    this.sources.forEach((_, id) => {
-      const gain = this.gains.get(id);
-      console.log(`[ListenerAudioMixer] Source ${id}: gain value = ${gain?.gain.value ?? 'N/A'}`);
+    this.sources.forEach((_, key) => {
+      const gain = this.gains.get(key);
+      console.log(`[ListenerAudioMixer] Source ${key}: gain value = ${gain?.gain.value ?? 'N/A'}`);
     });
   }
 
