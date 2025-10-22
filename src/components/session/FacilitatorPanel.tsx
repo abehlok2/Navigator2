@@ -128,9 +128,27 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
       const participantIds = peerManager.getParticipantIds();
       const senders = audioSendersRef.current;
 
+      // Clean up senders for participants that are no longer connected
+      for (const [participantId, sender] of senders.entries()) {
+        if (!participantIds.includes(participantId)) {
+          const pc = peerManager.getConnection(participantId);
+          if (!pc || pc.connectionState === 'closed' || pc.connectionState === 'failed') {
+            console.log(`[FacilitatorPanel] Removing stale sender for ${participantId}`);
+            senders.delete(participantId);
+          }
+        }
+      }
+
       for (const participantId of participantIds) {
         const pc = peerManager.getConnection(participantId);
         if (!pc) {
+          continue;
+        }
+
+        // Skip if connection is closed or failed
+        if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
+          console.log(`[FacilitatorPanel] Skipping broadcast to closed/failed connection: ${participantId}`);
+          senders.delete(participantId);
           continue;
         }
 
@@ -152,6 +170,8 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
           }
         } catch (error) {
           console.error(`[FacilitatorPanel] Failed to broadcast audio to ${participantId}:`, error);
+          // Remove sender on error as it may be invalid
+          senders.delete(participantId);
         }
       }
     },
@@ -164,15 +184,21 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
 
     for (const [participantId, sender] of senders.entries()) {
       try {
-        await sender.replaceTrack(null);
-        console.log(`[FacilitatorPanel] Cleared audio track for ${participantId}`);
+        // Check if the peer connection is still open before trying to replace track
+        const pc = peerManager?.getConnection(participantId);
+        if (pc && pc.connectionState !== 'closed' && pc.connectionState !== 'failed') {
+          await sender.replaceTrack(null);
+          console.log(`[FacilitatorPanel] Cleared audio track for ${participantId}`);
+        } else {
+          console.log(`[FacilitatorPanel] Skipping closed/failed connection for ${participantId}`);
+        }
       } catch (error) {
         console.error(`[FacilitatorPanel] Failed to clear audio track for ${participantId}:`, error);
       }
     }
 
     senders.clear();
-  }, []);
+  }, [peerManager]);
 
   const sessionOverview = useMemo(
     () => ({
