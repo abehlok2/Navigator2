@@ -74,23 +74,31 @@ export class ControlChannel {
    * Sends a control message through all open data channels (broadcasts).
    * If no channels are open, buffers the message for later delivery.
    * @param bufferIfClosed - If true, buffers message when no channels are open instead of throwing
-   * @throws Error if no data channels are initialized or if sending fails and bufferIfClosed is false
+   * @throws Error if no data channels are initialized and bufferIfClosed is false, or if sending fails
    */
   public send<T extends ControlMessageType>(
     type: T,
     data?: Omit<ControlMessageEventMap[T], 'type' | 'timestamp'>,
     bufferIfClosed = true,
   ): void {
-    if (this.dataChannels.size === 0) {
-      throw new Error('Control channel not initialized. Call setDataChannel first.');
-    }
-
     const message: ControlMessage = {
       type,
       timestamp: Date.now(),
       ...data,
     } as ControlMessage;
 
+    // If no data channels exist yet, buffer the message if allowed
+    if (this.dataChannels.size === 0) {
+      if (bufferIfClosed) {
+        this.bufferMessage(message);
+        console.log(`Buffered message of type "${type}" - no data channels yet (${this.messageBuffer.length} in buffer)`);
+        return;
+      } else {
+        throw new Error('Control channel not initialized. Call setDataChannel first.');
+      }
+    }
+
+    // If data channels exist but none are open, buffer if allowed
     if (this.openChannels.size === 0) {
       if (bufferIfClosed) {
         this.bufferMessage(message);
