@@ -171,17 +171,19 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
   );
 
   // Helper function to safely send control messages
+  // Messages are automatically buffered if channels aren't ready yet
   const sendControlMessage = useCallback(
     <T extends import('../../types/control-messages').ControlMessageType>(
       type: T,
       data?: Omit<import('../../types/control-messages').ControlMessageEventMap[T], 'type' | 'timestamp'>,
     ) => {
-      if (!controlChannel || !controlChannel.isReady()) {
-        console.warn(`Control channel not ready. Cannot send message: ${type}`);
+      if (!controlChannel) {
+        console.warn(`Control channel not initialized. Cannot send message: ${type}`);
         return;
       }
 
       try {
+        // ControlChannel.send() will automatically buffer messages if channels aren't ready
         controlChannel.send(type, data);
       } catch (error) {
         console.error(`Failed to send control message (${type}):`, error);
