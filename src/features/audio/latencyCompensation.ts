@@ -57,7 +57,15 @@ export class LatencyCompensator {
 
     // Calculate average, removing outliers
     const sorted = [...this.measurements].sort((a, b) => a - b);
-    const trimmed = sorted.slice(1, -1); // Remove highest and lowest
+
+    // Only remove outliers if we have more than 3 measurements
+    // to avoid empty array from slice(1, -1)
+    let trimmed: number[];
+    if (sorted.length > 3) {
+      trimmed = sorted.slice(1, -1); // Remove highest and lowest
+    } else {
+      trimmed = sorted; // Use all measurements if we have 3 or fewer
+    }
 
     const sum = trimmed.reduce((a, b) => a + b, 0);
     this.estimatedLatency = trimmed.length > 0 ? sum / trimmed.length / 2 : 0; // Half of RTT

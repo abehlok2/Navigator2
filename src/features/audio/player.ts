@@ -3,6 +3,7 @@ export type AudioPlayerEvent = 'timeupdate' | 'ended';
 export class AudioPlayer {
   private audio: HTMLAudioElement;
   private objectUrl: string | null = null;
+  private eventHandlers = new Map<AudioPlayerEvent, Set<EventListener>>();
 
   constructor() {
     this.audio = new Audio();
@@ -89,18 +90,37 @@ export class AudioPlayer {
     return this.audio.volume;
   }
 
-  on(event: AudioPlayerEvent, handler: Function): void {
-    const listener = handler as EventListener;
-    this.audio.addEventListener(event, listener);
+  on(event: AudioPlayerEvent, handler: EventListener): void {
+    if (!this.eventHandlers.has(event)) {
+      this.eventHandlers.set(event, new Set());
+    }
+    const handlers = this.eventHandlers.get(event);
+    handlers?.add(handler);
+    this.audio.addEventListener(event, handler);
   }
 
-  off(event: AudioPlayerEvent, handler: Function): void {
-    const listener = handler as EventListener;
-    this.audio.removeEventListener(event, listener);
+  off(event: AudioPlayerEvent, handler: EventListener): void {
+    const handlers = this.eventHandlers.get(event);
+    if (handlers) {
+      handlers.delete(handler);
+      if (handlers.size === 0) {
+        this.eventHandlers.delete(event);
+      }
+    }
+    this.audio.removeEventListener(event, handler);
   }
 
   destroy(): void {
     this.stop();
+
+    // Clean up all registered event handlers
+    for (const [event, handlers] of this.eventHandlers.entries()) {
+      for (const handler of handlers) {
+        this.audio.removeEventListener(event, handler);
+      }
+    }
+    this.eventHandlers.clear();
+
     if (this.objectUrl) {
       URL.revokeObjectURL(this.objectUrl);
       this.objectUrl = null;

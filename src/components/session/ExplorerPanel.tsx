@@ -285,7 +285,7 @@ export const ExplorerPanel = ({ controlChannel, peerManager, audioMixer }: Explo
       controlChannel.off('audio:volume', handleAudioVolume);
       controlChannel.off('audio:file-loaded', handleAudioFileLoaded);
     };
-  }, [controlChannel]);
+  }, [controlChannel, latencyCompensator]);
 
   // Get session overview data
   const sessionOverview = {
