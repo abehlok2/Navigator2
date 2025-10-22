@@ -40,8 +40,8 @@ dotenv.config();
 
 const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 
-const validateEmail = (email: unknown): email is string =>
-  typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+const validateUsername = (username: unknown): username is string =>
+  typeof username === 'string' && username.length >= 3 && /^[a-zA-Z0-9_-]+$/.test(username);
 
 const validatePassword = (password: unknown): password is string =>
   typeof password === 'string' && password.length >= 8;
@@ -76,14 +76,20 @@ const seedPresetUsers = () => {
       return;
     }
 
-    const { email, password, displayName } = entry as {
-      email?: unknown;
+    const { username, password, email, displayName } = entry as {
+      username?: unknown;
       password?: unknown;
+      email?: unknown;
       displayName?: unknown;
     };
 
-    if (!validateEmail(email) || !validatePassword(password)) {
-      console.warn(`Skipping preset user at index ${index}: invalid email or password.`);
+    if (!validateUsername(username) || !validatePassword(password)) {
+      console.warn(`Skipping preset user at index ${index}: invalid username or password.`);
+      return;
+    }
+
+    if (email !== undefined && typeof email !== 'string') {
+      console.warn(`Skipping preset user at index ${index}: email must be a string when provided.`);
       return;
     }
 
@@ -94,11 +100,12 @@ const seedPresetUsers = () => {
 
     try {
       const user = userStore.upsertUser({
-        email,
+        username,
         password,
+        email: email as string | undefined,
         displayName: displayName as string | undefined,
       });
-      console.info(`Loaded preset account for ${user.email}.`);
+      console.info(`Loaded preset account for ${user.username}.`);
     } catch (error) {
       console.error(`Failed to load preset user at index ${index}.`, error);
     }
@@ -154,58 +161,27 @@ const authenticateToken = (token: string) => {
 };
 
 const registerHandler = async (req: JsonRequest, res: ServerResponse) => {
-  try {
-    const body = await readJsonBody(req);
-    const { email, password, displayName } = body as {
-      email?: unknown;
-      password?: unknown;
-      displayName?: unknown;
-    };
-
-    if (!validateEmail(email) || !validatePassword(password)) {
-      return sendJsonError(res, 400, 'VALIDATION_ERROR', 'Invalid email or password format.');
-    }
-
-    if (displayName !== undefined && typeof displayName !== 'string') {
-      return sendJsonError(res, 400, 'VALIDATION_ERROR', 'displayName must be a string when provided.');
-    }
-
-    if (userStore.hasEmail(email)) {
-      return sendJsonError(res, 409, 'AUTH_EMAIL_IN_USE', 'An account with that email already exists.');
-    }
-
-    const user = userStore.createUser({ email, password, displayName });
-    const expiresAt = getExpiresAt();
-    const token = signToken({ sub: user.id, exp: expiresAt.getTime() }, SECRET);
-
-    const response: AuthResponse = {
-      user: userStore.toPublicUser(user),
-      token,
-    };
-
-    sendJson(res, 201, response);
-  } catch (error) {
-    console.error('register error', error);
-    if (error instanceof Error && error.message === 'Invalid JSON payload') {
-      sendJsonError(res, 400, 'VALIDATION_ERROR', 'Request body must be valid JSON.');
-    } else {
-      sendJsonError(res, 500, 'SERVER_ERROR', 'Unable to create account.');
-    }
-  }
+  // Registration is disabled - only pre-defined users from .env can login
+  return sendJsonError(
+    res,
+    403,
+    'REGISTRATION_DISABLED',
+    'User registration is disabled. Only pre-defined users can access this system.'
+  );
 };
 
 const loginHandler = async (req: JsonRequest, res: ServerResponse) => {
   try {
     const body = await readJsonBody(req);
-    const { email, password } = body as { email?: unknown; password?: unknown };
+    const { username, password } = body as { username?: unknown; password?: unknown };
 
-    if (!validateEmail(email) || !validatePassword(password)) {
-      return sendJsonError(res, 400, 'VALIDATION_ERROR', 'Invalid email or password format.');
+    if (!validateUsername(username) || !validatePassword(password)) {
+      return sendJsonError(res, 400, 'VALIDATION_ERROR', 'Invalid username or password format.');
     }
 
-    const user = userStore.getByEmail(email);
+    const user = userStore.getByUsername(username);
     if (!user || !userStore.verifyPassword(user, password)) {
-      return sendJsonError(res, 401, 'AUTH_INVALID_CREDENTIALS', 'Invalid email or password.');
+      return sendJsonError(res, 401, 'AUTH_INVALID_CREDENTIALS', 'Invalid username or password.');
     }
 
     const expiresAt = getExpiresAt();

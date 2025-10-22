@@ -92,12 +92,7 @@ export const HomePage = () => {
       return user.displayName.trim();
     }
 
-    if (user.email.includes('@')) {
-      const [namePart] = user.email.split('@');
-      return namePart ?? user.email;
-    }
-
-    return user.email;
+    return user.username;
   }, [user]);
 
   const facilitatorRole = useMemo<ParticipantRole>(() => user?.role ?? 'facilitator', [user?.role]);
