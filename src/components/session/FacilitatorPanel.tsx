@@ -705,6 +705,62 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
     }
   }, [backgroundVolume, mixer]);
 
+  // When a new control channel opens (e.g., explorer/listener joins mid-session),
+  // synchronize the current audio state so they match the facilitator's playback.
+  useEffect(() => {
+    if (!controlChannel) {
+      return;
+    }
+
+    const handleChannelOpen = () => {
+      const clampedVolume = Math.min(Math.max(backgroundVolume, 0), 1);
+      const durationValue = Number.isFinite(audioDuration) ? audioDuration : 0;
+      const currentTime = Number.isFinite(playbackPosition) ? playbackPosition : 0;
+
+      if (currentFile) {
+        sendControlMessage('audio:file-loaded', {
+          fileName: currentFile.name,
+          duration: durationValue,
+        });
+
+        sendControlMessage('audio:progress', {
+          currentTime,
+          duration: durationValue,
+        });
+      }
+
+      sendControlMessage('audio:volume', {
+        volume: clampedVolume,
+      });
+
+      if (playbackState === 'playing') {
+        sendControlMessage('audio:play', {
+          fileName: currentFile?.name,
+        });
+      } else if (playbackState === 'paused') {
+        sendControlMessage('audio:pause', {
+          currentTime,
+        });
+      } else {
+        sendControlMessage('audio:stop', {});
+      }
+    };
+
+    controlChannel.on('channel:open', handleChannelOpen);
+
+    return () => {
+      controlChannel.off('channel:open', handleChannelOpen);
+    };
+  }, [
+    audioDuration,
+    backgroundVolume,
+    controlChannel,
+    currentFile,
+    playbackPosition,
+    playbackState,
+    sendControlMessage,
+  ]);
+
   // Handle latency ping messages and respond with pong
   useEffect(() => {
     if (!controlChannel) {
