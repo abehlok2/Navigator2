@@ -39,7 +39,20 @@ const panelStyles: CSSProperties = {
   gap: '1.5rem',
 };
 
+const contentLayoutStyles: CSSProperties = {
+  display: 'grid',
+  gap: '1.5rem',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+  alignItems: 'start',
+};
+
 const controlsWrapperStyles: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '1.5rem',
+};
+
+const sidebarLayoutStyles: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: '1.5rem',
@@ -650,68 +663,70 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
         />
       )}
 
-      <Card title="Facilitator Control Center">
-        <div style={controlsWrapperStyles}>
-          <div style={sectionStyles}>
-            <h3 style={sectionHeadingStyles}>Background Audio Control</h3>
-            <p style={sectionStatusStyles}>
-              {currentFile ? `Current track: ${currentFile.name}` : 'No audio file selected.'} Playback is{' '}
-              {toTitleCase(playbackState)}. Volume {Math.round(backgroundVolume * 100)}%. Position
-              {' '}
-              {Math.round(playbackPosition)}s.
-            </p>
-            <div style={controlsLayoutStyles}>
-              <BackgroundPlayer
-                onFileLoad={handleAudioLoad}
-                onError={handleAudioLoadError}
-                onPlay={handlePlay}
-                onPause={handlePause}
-                onStop={handleStop}
-                onSeek={handleSeek}
-                onVolumeChange={handleBackgroundVolumeChange}
+      <div style={contentLayoutStyles}>
+        <Card title="Facilitator Control Center">
+          <div style={controlsWrapperStyles}>
+            <div style={sectionStyles}>
+              <h3 style={sectionHeadingStyles}>Background Audio Control</h3>
+              <p style={sectionStatusStyles}>
+                {currentFile ? `Current track: ${currentFile.name}` : 'No audio file selected.'} Playback is{' '}
+                {toTitleCase(playbackState)}. Volume {Math.round(backgroundVolume * 100)}%. Position
+                {' '}
+                {Math.round(playbackPosition)}s.
+              </p>
+              <div style={controlsLayoutStyles}>
+                <BackgroundPlayer
+                  onFileLoad={handleAudioLoad}
+                  onError={handleAudioLoadError}
+                  onPlay={handlePlay}
+                  onPause={handlePause}
+                  onStop={handleStop}
+                  onSeek={handleSeek}
+                  onVolumeChange={handleBackgroundVolumeChange}
+                />
+              </div>
+            </div>
+
+            <div style={sectionStyles}>
+              <h3 style={sectionHeadingStyles}>Voice Channel</h3>
+              <p style={sectionStatusStyles}>
+                Microphone is {isMicrophoneActive ? 'active' : 'inactive'}. Input level: {audioLevels.microphone}%.
+              </p>
+              <MicrophoneControl
+                isActive={isMicrophoneActive}
+                level={audioLevels.microphone}
+                onToggle={handleMicrophoneToggle}
+                onError={handleMicrophoneError}
+              />
+            </div>
+
+            <div style={sectionStyles}>
+              <h3 style={sectionHeadingStyles}>Recording</h3>
+              <p style={sectionStatusStyles}>
+                {isRecording
+                  ? 'Recording in progress…'
+                  : recordingBlob
+                  ? `Last recording ready (${Math.round(recordingBlob.size / 1024)} KB).`
+                  : 'Start a new recording to capture the session.'}
+              </p>
+              <RecordingControl
+                onStart={handleRecordingStart}
+                onStop={handleRecordingStop}
+                onDownload={(blob) => {
+                  setRecordingBlob(blob);
+                  handleRecordingDownload(blob);
+                }}
+                onError={handleRecordingError}
               />
             </div>
           </div>
+        </Card>
 
-          <div style={sectionStyles}>
-            <h3 style={sectionHeadingStyles}>Voice Channel</h3>
-            <p style={sectionStatusStyles}>
-              Microphone is {isMicrophoneActive ? 'active' : 'inactive'}. Input level: {audioLevels.microphone}%.
-            </p>
-            <MicrophoneControl
-              isActive={isMicrophoneActive}
-              level={audioLevels.microphone}
-              onToggle={handleMicrophoneToggle}
-              onError={handleMicrophoneError}
-            />
-          </div>
-
-          <div style={sectionStyles}>
-            <h3 style={sectionHeadingStyles}>Recording</h3>
-            <p style={sectionStatusStyles}>
-              {isRecording
-                ? 'Recording in progress…'
-                : recordingBlob
-                ? `Last recording ready (${Math.round(recordingBlob.size / 1024)} KB).`
-                : 'Start a new recording to capture the session.'}
-            </p>
-            <RecordingControl
-              onStart={handleRecordingStart}
-              onStop={handleRecordingStop}
-              onDownload={(blob) => {
-                setRecordingBlob(blob);
-                handleRecordingDownload(blob);
-              }}
-              onError={handleRecordingError}
-            />
-          </div>
+        <div style={sidebarLayoutStyles}>
+          {roomId ? <SessionNotes roomId={roomId} /> : null}
+          <ParticipantList />
         </div>
-      </Card>
-
-      {/* Session Notes */}
-      {roomId && <SessionNotes roomId={roomId} />}
-
-      <ParticipantList />
+      </div>
     </section>
   );
 };
