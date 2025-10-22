@@ -477,7 +477,7 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
     [backgroundVolume, mixer, sendControlMessage, stopProgressUpdates],
   );
 
-  const handlePlay = useCallback(() => {
+  const handlePlay = useCallback(async () => {
     console.log('[FacilitatorPanel] ========== PLAY CLICKED ==========');
     console.log('[FacilitatorPanel] Current file:', currentFile?.name);
     console.log('[FacilitatorPanel] Mixer available:', !!mixer);
@@ -490,7 +490,25 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
     // Resume audio context to ensure audio plays (browser autoplay policy)
     if (mixer) {
       console.log('[FacilitatorPanel] Resuming audio context...');
-      void mixer.resumeAudioContext();
+      await mixer.resumeAudioContext();
+
+      // Ensure audio element is playing before broadcasting
+      if (audioPlayer) {
+        if (audioPlayer.paused) {
+          console.log('[FacilitatorPanel] Audio element is paused, starting playback...');
+          try {
+            await audioPlayer.play();
+            console.log('[FacilitatorPanel] Audio element is now playing');
+          } catch (error) {
+            console.error('[FacilitatorPanel] Failed to start audio playback:', error);
+          }
+        }
+
+        // Wait 100ms to let audio data start flowing
+        console.log('[FacilitatorPanel] Waiting 100ms for audio data to start flowing...');
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+
       const mixedStream = mixer.getMixedStream();
       console.log('[FacilitatorPanel] Mixed stream active:', mixedStream.active);
       console.log('[FacilitatorPanel] Mixed stream tracks:', mixedStream.getTracks().length);
@@ -500,7 +518,7 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
       });
 
       console.log('[FacilitatorPanel] Broadcasting audio track to peers...');
-      void broadcastAudioTrack(mixedStream);
+      await broadcastAudioTrack(mixedStream);
     } else {
       console.warn('[FacilitatorPanel] No mixer available to broadcast');
     }
