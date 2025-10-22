@@ -352,7 +352,25 @@ export const SessionPage = () => {
 
       // Listen for remote tracks
       manager.on('track', ({ participantId, track, streams }) => {
-        console.log(`[SessionPage] Received ${track.kind} track from ${participantId}`, streams);
+        console.log(`[SessionPage] ========== TRACK RECEIVED ==========`);
+        console.log(`[SessionPage] Participant: ${participantId}`);
+        console.log(`[SessionPage] Track kind: ${track.kind}`);
+        console.log(`[SessionPage] Track ID: ${track.id}`);
+        console.log(`[SessionPage] Track enabled: ${track.enabled}`);
+        console.log(`[SessionPage] Track muted: ${track.muted}`);
+        console.log(`[SessionPage] Track readyState: ${track.readyState}`);
+        console.log(`[SessionPage] Streams count: ${streams.length}`);
+
+        if (streams.length > 0) {
+          const stream = streams[0];
+          console.log(`[SessionPage] Stream ID: ${stream.id}`);
+          console.log(`[SessionPage] Stream active: ${stream.active}`);
+          console.log(`[SessionPage] Stream audio tracks: ${stream.getAudioTracks().length}`);
+          console.log(`[SessionPage] Stream video tracks: ${stream.getVideoTracks().length}`);
+        }
+
+        console.log(`[SessionPage] Current user role: ${userRole}`);
+        console.log(`[SessionPage] Mixer instance type: ${audioMixerRef.current?.constructor.name || 'null'}`);
 
         // Handle audio tracks
         if (track.kind === 'audio' && streams.length > 0) {
@@ -377,16 +395,24 @@ export const SessionPage = () => {
 
             if (mixer instanceof ExplorerAudioMixer) {
               // Explorer mixer connects facilitator stream
+              console.log('[SessionPage] Calling mixer.connectFacilitatorStream()');
               mixer.connectFacilitatorStream(stream);
               // Resume audio context to ensure audio plays (browser autoplay policy)
+              console.log('[SessionPage] Calling mixer.resumeAudioContext()');
               void mixer.resumeAudioContext();
             } else if (mixer instanceof ListenerAudioMixer) {
               // Listener mixer adds facilitator as an audio source
+              console.log('[SessionPage] Calling mixer.addAudioSource()');
               mixer.addAudioSource(participantId, stream, 'Facilitator');
               // Resume audio context to ensure audio plays (browser autoplay policy)
+              console.log('[SessionPage] Calling mixer.resumeAudioContext()');
               void mixer.resumeAudioContext();
             }
           }
+
+          console.log(`[SessionPage] ========== TRACK HANDLING COMPLETE ==========`);
+        } else {
+          console.log(`[SessionPage] Skipping track (kind: ${track.kind}, streams: ${streams.length})`);
         }
       });
 

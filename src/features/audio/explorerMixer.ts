@@ -51,12 +51,35 @@ export class ExplorerAudioMixer {
   }
 
   connectFacilitatorStream(stream: MediaStream): void {
+    console.log('[ExplorerAudioMixer] Connecting facilitator stream');
+    console.log(`[ExplorerAudioMixer] Stream active: ${stream.active}, track count: ${stream.getAudioTracks().length}`);
+
+    // Log track details
+    stream.getAudioTracks().forEach((track, index) => {
+      console.log(`[ExplorerAudioMixer] Track ${index}: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+    });
+
     if (this.facilitatorSource) {
       this.facilitatorSource.disconnect();
     }
 
+    // Verify stream has active audio tracks
+    const audioTracks = stream.getAudioTracks();
+    if (audioTracks.length === 0) {
+      console.error('[ExplorerAudioMixer] No audio tracks in facilitator stream');
+      return;
+    }
+
     this.facilitatorSource = this.audioContext.createMediaStreamSource(stream);
     this.facilitatorSource.connect(this.facilitatorGain);
+
+    console.log(`[ExplorerAudioMixer] AudioContext state: ${this.audioContext.state}, sample rate: ${this.audioContext.sampleRate}`);
+    console.log(`[ExplorerAudioMixer] Facilitator gain value: ${this.facilitatorGain.gain.value}`);
+    console.log(`[ExplorerAudioMixer] Master gain value: ${this.masterGain.gain.value}`);
+    console.log('[ExplorerAudioMixer] Successfully connected facilitator stream');
+
+    // Attempt to resume audio context immediately
+    void this.resumeAudioContext();
   }
 
   connectBackgroundStream(stream: MediaStream): void {
@@ -85,13 +108,31 @@ export class ExplorerAudioMixer {
    * Should be called when receiving audio from facilitator
    */
   async resumeAudioContext(): Promise<void> {
+    console.log(`[ExplorerAudioMixer] Current AudioContext state: ${this.audioContext.state}`);
+
     if (this.audioContext.state === 'suspended') {
       try {
+        console.log('[ExplorerAudioMixer] Attempting to resume AudioContext...');
         await this.audioContext.resume();
-        console.log('[ExplorerAudioMixer] AudioContext resumed');
+        console.log(`[ExplorerAudioMixer] AudioContext resumed successfully. New state: ${this.audioContext.state}`);
       } catch (error) {
         console.error('[ExplorerAudioMixer] Failed to resume AudioContext:', error);
       }
+    } else {
+      console.log('[ExplorerAudioMixer] AudioContext already running');
+    }
+
+    // Log connection status
+    if (this.facilitatorSource) {
+      console.log('[ExplorerAudioMixer] Facilitator source is connected');
+    } else {
+      console.log('[ExplorerAudioMixer] No facilitator source connected');
+    }
+
+    if (this.backgroundSource) {
+      console.log('[ExplorerAudioMixer] Background source is connected');
+    } else {
+      console.log('[ExplorerAudioMixer] No background source connected');
     }
   }
 
