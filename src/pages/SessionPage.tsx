@@ -272,6 +272,48 @@ export const SessionPage = () => {
     };
   }, [userRole]);
 
+  // Ensure the listener/explorer audio context is resumed on first user interaction
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    if (!userRole || userRole === 'facilitator') {
+      return;
+    }
+
+    if (!audioMixerRef.current) {
+      return;
+    }
+
+    const interactionEvents: Array<keyof DocumentEventMap> = ['pointerdown', 'keydown'];
+
+    let unlocked = false;
+
+    const handleInteraction = () => {
+      if (unlocked) {
+        return;
+      }
+
+      unlocked = true;
+      void audioMixerRef.current?.resumeAudioContext();
+      removeEventListeners();
+    };
+
+    const removeEventListeners = () => {
+      interactionEvents.forEach((event) => {
+        document.removeEventListener(event, handleInteraction);
+      });
+    };
+    interactionEvents.forEach((event) => {
+      document.addEventListener(event, handleInteraction, { passive: true });
+    });
+
+    return () => {
+      removeEventListeners();
+    };
+  }, [userRole]);
+
   // Initialize peer connection manager after signaling connects
   useEffect(() => {
     if (connectionStatus === 'connected' && !peerManagerRef.current) {
