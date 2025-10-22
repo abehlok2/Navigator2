@@ -117,6 +117,21 @@ export class FacilitatorAudioMixer {
     this.backgroundAudioElement = audioElement;
   }
 
+  /**
+   * Resume the audio context if it's suspended (required for browser autoplay policies)
+   * Should be called on user interaction (e.g., clicking play button)
+   */
+  async resumeAudioContext(): Promise<void> {
+    if (this.audioContext.state === 'suspended') {
+      try {
+        await this.audioContext.resume();
+        console.log('[FacilitatorAudioMixer] AudioContext resumed');
+      } catch (error) {
+        console.error('[FacilitatorAudioMixer] Failed to resume AudioContext:', error);
+      }
+    }
+  }
+
   getMixedStream(): MediaStream {
     return this.destination.stream;
   }

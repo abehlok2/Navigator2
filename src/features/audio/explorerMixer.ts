@@ -80,6 +80,21 @@ export class ExplorerAudioMixer {
     this.masterGain.gain.setValueAtTime(value, this.audioContext.currentTime);
   }
 
+  /**
+   * Resume the audio context if it's suspended (required for browser autoplay policies)
+   * Should be called when receiving audio from facilitator
+   */
+  async resumeAudioContext(): Promise<void> {
+    if (this.audioContext.state === 'suspended') {
+      try {
+        await this.audioContext.resume();
+        console.log('[ExplorerAudioMixer] AudioContext resumed');
+      } catch (error) {
+        console.error('[ExplorerAudioMixer] Failed to resume AudioContext:', error);
+      }
+    }
+  }
+
   createLevelMonitor(sourceType: 'facilitator' | 'background'): AudioLevelMonitor {
     const gainNode = sourceType === 'facilitator' ? this.facilitatorGain : this.backgroundGain;
     return new GainNodeAudioLevelMonitor(this.audioContext, gainNode);

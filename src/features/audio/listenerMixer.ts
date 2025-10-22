@@ -58,6 +58,21 @@ export class ListenerAudioMixer {
     this.masterGain.gain.setValueAtTime(value, this.audioContext.currentTime);
   }
 
+  /**
+   * Resume the audio context if it's suspended (required for browser autoplay policies)
+   * Should be called when receiving audio from facilitator
+   */
+  async resumeAudioContext(): Promise<void> {
+    if (this.audioContext.state === 'suspended') {
+      try {
+        await this.audioContext.resume();
+        console.log('[ListenerAudioMixer] AudioContext resumed');
+      } catch (error) {
+        console.error('[ListenerAudioMixer] Failed to resume AudioContext:', error);
+      }
+    }
+  }
+
   muteSource(participantId: string, muted: boolean): void {
     this.setSourceVolume(participantId, muted ? 0 : 1.0);
   }
