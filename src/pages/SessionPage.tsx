@@ -374,8 +374,14 @@ export const SessionPage = () => {
         console.log(`[SessionPage] Mixer instance type: ${audioMixerRef.current?.constructor.name || 'null'}`);
 
         // Handle audio tracks
-        if (track.kind === 'audio' && streams.length > 0) {
-          const stream = streams[0];
+        if (track.kind === 'audio') {
+          const trackLabel = track.label?.toLowerCase() ?? '';
+          const isBackgroundTrack =
+            track.contentHint === 'music' ||
+            trackLabel.includes('background') ||
+            trackLabel.includes('music');
+
+          const stream = streams[0] ?? new MediaStream([track]);
           const mixer = audioMixerRef.current;
 
           if (!mixer) {
@@ -392,19 +398,30 @@ export const SessionPage = () => {
             }
           } else {
             // Explorer or Listener receiving audio from facilitator
-            console.log(`[SessionPage] Routing facilitator audio to ${userRole} mixer`);
+            console.log(
+              `[SessionPage] Routing ${isBackgroundTrack ? 'background' : 'facilitator'} audio to ${userRole} mixer`,
+            );
 
             if (mixer instanceof ExplorerAudioMixer) {
-              // Explorer mixer connects facilitator stream
-              console.log('[SessionPage] Calling mixer.connectFacilitatorStream()');
-              mixer.connectFacilitatorStream(stream);
+              if (isBackgroundTrack) {
+                console.log('[SessionPage] Calling mixer.connectBackgroundStream()');
+                mixer.connectBackgroundStream(stream);
+              } else {
+                // Explorer mixer connects facilitator stream
+                console.log('[SessionPage] Calling mixer.connectFacilitatorStream()');
+                mixer.connectFacilitatorStream(stream);
+              }
               // Resume audio context to ensure audio plays (browser autoplay policy)
               console.log('[SessionPage] Calling mixer.resumeAudioContext()');
               void mixer.resumeAudioContext();
             } else if (mixer instanceof ListenerAudioMixer) {
-              // Listener mixer adds facilitator as an audio source
+              // Listener mixer adds facilitator/background as audio sources
               console.log('[SessionPage] Calling mixer.addAudioSource()');
-              mixer.addAudioSource(participantId, stream, 'Facilitator');
+              mixer.addAudioSource(
+                participantId,
+                stream,
+                isBackgroundTrack ? 'Background' : 'Facilitator',
+              );
               // Resume audio context to ensure audio plays (browser autoplay policy)
               console.log('[SessionPage] Calling mixer.resumeAudioContext()');
               void mixer.resumeAudioContext();

@@ -83,12 +83,31 @@ export class ExplorerAudioMixer {
   }
 
   connectBackgroundStream(stream: MediaStream): void {
+    console.log('[ExplorerAudioMixer] Connecting background stream');
+    console.log(
+      `[ExplorerAudioMixer] Stream active: ${stream.active}, track count: ${stream.getAudioTracks().length}`,
+    );
+
     if (this.backgroundSource) {
       this.backgroundSource.disconnect();
     }
 
+    const audioTracks = stream.getAudioTracks();
+    if (audioTracks.length === 0) {
+      console.error('[ExplorerAudioMixer] No audio tracks in background stream');
+      return;
+    }
+
     this.backgroundSource = this.audioContext.createMediaStreamSource(stream);
     this.backgroundSource.connect(this.backgroundGain);
+
+    audioTracks.forEach((track, index) => {
+      console.log(
+        `[ExplorerAudioMixer] Background track ${index}: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`,
+      );
+    });
+
+    console.log('[ExplorerAudioMixer] Background stream connected successfully');
   }
 
   setFacilitatorVolume(value: number): void {
