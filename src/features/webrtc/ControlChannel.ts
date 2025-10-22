@@ -18,6 +18,8 @@ export class ControlChannel {
     Set<ControlMessageHandler<any>>
   >();
   private openChannels = new Set<string>();
+  private messageBuffer: ControlMessage[] = [];
+  private readonly MAX_BUFFER_SIZE = 50;
 
   /**
    * Creates a new ControlChannel instance.
@@ -70,18 +72,17 @@ export class ControlChannel {
 
   /**
    * Sends a control message through all open data channels (broadcasts).
-   * @throws Error if no data channels are open
+   * If no channels are open, buffers the message for later delivery.
+   * @param bufferIfClosed - If true, buffers message when no channels are open instead of throwing
+   * @throws Error if no data channels are initialized or if sending fails and bufferIfClosed is false
    */
   public send<T extends ControlMessageType>(
     type: T,
     data?: Omit<ControlMessageEventMap[T], 'type' | 'timestamp'>,
+    bufferIfClosed = true,
   ): void {
     if (this.dataChannels.size === 0) {
       throw new Error('Control channel not initialized. Call setDataChannel first.');
-    }
-
-    if (this.openChannels.size === 0) {
-      throw new Error('No open control channels. Cannot send message.');
     }
 
     const message: ControlMessage = {
@@ -89,6 +90,16 @@ export class ControlChannel {
       timestamp: Date.now(),
       ...data,
     } as ControlMessage;
+
+    if (this.openChannels.size === 0) {
+      if (bufferIfClosed) {
+        this.bufferMessage(message);
+        console.log(`Buffered message of type "${type}" (${this.messageBuffer.length} in buffer)`);
+        return;
+      } else {
+        throw new Error('No open control channels. Cannot send message.');
+      }
+    }
 
     const messageStr = JSON.stringify(message);
     let sentCount = 0;
@@ -111,7 +122,58 @@ export class ControlChannel {
     }
 
     if (sentCount === 0 && lastError) {
-      throw new Error(`Failed to send control message to any channel: ${lastError.message}`);
+      if (bufferIfClosed) {
+        this.bufferMessage(message);
+        console.log(`Failed to send, buffered message of type "${type}"`);
+      } else {
+        throw new Error(`Failed to send control message to any channel: ${lastError.message}`);
+      }
+    }
+  }
+
+  /**
+   * Buffers a message for later delivery when channels become available.
+   */
+  private bufferMessage(message: ControlMessage): void {
+    this.messageBuffer.push(message);
+
+    // Prevent unbounded buffer growth
+    if (this.messageBuffer.length > this.MAX_BUFFER_SIZE) {
+      const removed = this.messageBuffer.shift();
+      console.warn(`Message buffer full, dropped oldest message of type "${removed?.type}"`);
+    }
+  }
+
+  /**
+   * Flushes buffered messages through open channels.
+   */
+  private flushMessageBuffer(): void {
+    if (this.messageBuffer.length === 0 || this.openChannels.size === 0) {
+      return;
+    }
+
+    console.log(`Flushing ${this.messageBuffer.length} buffered messages`);
+    const messages = [...this.messageBuffer];
+    this.messageBuffer = [];
+
+    for (const message of messages) {
+      const messageStr = JSON.stringify(message);
+
+      for (const channelId of this.openChannels) {
+        const channel = this.dataChannels.get(channelId);
+        if (!channel || channel.readyState !== 'open') {
+          continue;
+        }
+
+        try {
+          channel.send(messageStr);
+        } catch (error) {
+          console.error(`Failed to flush message of type "${message.type}":`, error);
+          // Re-buffer failed messages
+          this.bufferMessage(message);
+          break;
+        }
+      }
     }
   }
 
@@ -182,6 +244,21 @@ export class ControlChannel {
     }
     this.dataChannels.clear();
     this.openChannels.clear();
+    this.messageBuffer = [];
+  }
+
+  /**
+   * Gets the number of messages currently in the buffer.
+   */
+  public getBufferSize(): number {
+    return this.messageBuffer.length;
+  }
+
+  /**
+   * Clears all buffered messages.
+   */
+  public clearBuffer(): void {
+    this.messageBuffer = [];
   }
 
   /**
@@ -230,6 +307,10 @@ export class ControlChannel {
   private handleChannelOpen(channelId: string): void {
     this.openChannels.add(channelId);
     console.log(`Control channel opened: ${channelId} (${this.openChannels.size} total)`);
+
+    // Flush buffered messages when a channel opens
+    this.flushMessageBuffer();
+
     this.emit('channel:open', { type: 'channel:open', timestamp: Date.now() });
   }
 
