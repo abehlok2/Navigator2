@@ -7,7 +7,7 @@ import {
   type CSSProperties,
 } from 'react';
 
-import { BackgroundPlayer, MicrophoneControl, RecordingControl } from '../audio';
+import { BackgroundPlayer, MicrophoneControl, RecordingControl, VolumeControl } from '../audio';
 import { NextTrackControl } from '../audio/NextTrackControl';
 import { ErrorDisplay } from './ErrorDisplay';
 import { ParticipantList } from './ParticipantList';
@@ -113,6 +113,9 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
   const [nextTrackFile, setNextTrackFile] = useState<File | null>(null);
   const [isCrossfading, setIsCrossfading] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const [facilitatorMicVolume, setFacilitatorMicVolume] = useState(100);
+  const [facilitatorMicMuted, setFacilitatorMicMuted] = useState(false);
+  const [explorerVolumes, setExplorerVolumes] = useState<Map<string, { volume: number; isMuted: boolean }>>(new Map());
 
   const recorderRef = useRef<FacilitatorRecorder | null>(null);
   const levelAnimationRef = useRef<number | null>(null);
@@ -706,6 +709,86 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
     [audioPlayer, mixer, sendControlMessage],
   );
 
+  const handleFacilitatorMicVolumeChange = useCallback(
+    (volume: number) => {
+      setFacilitatorMicVolume(volume);
+      const normalizedVolume = facilitatorMicMuted ? 0 : volume / 100;
+
+      if (mixer) {
+        mixer.setMicVolume(normalizedVolume);
+      }
+
+      sendControlMessage('audio:facilitator-volume', {
+        volume: normalizedVolume,
+      });
+    },
+    [facilitatorMicMuted, mixer, sendControlMessage],
+  );
+
+  const handleFacilitatorMicMute = useCallback(
+    (muted: boolean) => {
+      setFacilitatorMicMuted(muted);
+      const normalizedVolume = muted ? 0 : facilitatorMicVolume / 100;
+
+      if (mixer) {
+        mixer.setMicVolume(normalizedVolume);
+      }
+
+      sendControlMessage('audio:facilitator-volume', {
+        volume: normalizedVolume,
+      });
+    },
+    [facilitatorMicVolume, mixer, sendControlMessage],
+  );
+
+  const handleExplorerVolumeChange = useCallback(
+    (explorerId: string, volume: number) => {
+      setExplorerVolumes((prev) => {
+        const next = new Map(prev);
+        const current = next.get(explorerId) || { volume: 100, isMuted: false };
+        next.set(explorerId, { ...current, volume });
+        return next;
+      });
+
+      const explorerState = explorerVolumes.get(explorerId);
+      const normalizedVolume = explorerState?.isMuted ? 0 : volume / 100;
+
+      if (mixer) {
+        mixer.setExplorerMicVolume(explorerId, normalizedVolume);
+      }
+
+      sendControlMessage('audio:explorer-volume', {
+        explorerId,
+        volume: normalizedVolume,
+      });
+    },
+    [explorerVolumes, mixer, sendControlMessage],
+  );
+
+  const handleExplorerMute = useCallback(
+    (explorerId: string, muted: boolean) => {
+      setExplorerVolumes((prev) => {
+        const next = new Map(prev);
+        const current = next.get(explorerId) || { volume: 100, isMuted: false };
+        next.set(explorerId, { ...current, isMuted: muted });
+        return next;
+      });
+
+      const explorerState = explorerVolumes.get(explorerId);
+      const normalizedVolume = muted ? 0 : (explorerState?.volume || 100) / 100;
+
+      if (mixer) {
+        mixer.setExplorerMicVolume(explorerId, normalizedVolume);
+      }
+
+      sendControlMessage('audio:explorer-volume', {
+        explorerId,
+        volume: normalizedVolume,
+      });
+    },
+    [explorerVolumes, mixer, sendControlMessage],
+  );
+
   const handleNextTrackLoad = useCallback(
     (file: File, nextAudioElement: HTMLAudioElement) => {
       console.log('[FacilitatorPanel] Loading next track:', file.name);
@@ -812,6 +895,32 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
       recorderRef.current = null;
     };
   }, [detachAudioSenders, stopLevelMonitoring, stopProgressUpdates]);
+
+  // Initialize volume state for new explorers
+  useEffect(() => {
+    setExplorerVolumes((prev) => {
+      const next = new Map(prev);
+
+      // Add new explorers with default volume
+      participants.forEach((participant) => {
+        if (participant.role === 'explorer' && !next.has(participant.id)) {
+          next.set(participant.id, { volume: 100, isMuted: false });
+        }
+      });
+
+      // Remove explorers that have left
+      const currentExplorerIds = new Set(
+        participants.filter((p) => p.role === 'explorer').map((p) => p.id)
+      );
+      for (const explorerId of next.keys()) {
+        if (!currentExplorerIds.has(explorerId)) {
+          next.delete(explorerId);
+        }
+      }
+
+      return next;
+    });
+  }, [participants]);
 
   useEffect(() => {
     const activeStream = microphoneStream;
@@ -962,6 +1071,47 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
     };
   }, [controlChannel, sendControlMessage]);
 
+  // Handle volume control messages from explorers
+  useEffect(() => {
+    if (!controlChannel) {
+      return;
+    }
+
+    const handleFacilitatorVolume = (message: import('../../types/control-messages').AudioFacilitatorVolumeMessage) => {
+      const volumePercent = Math.round(message.volume * 100);
+      setFacilitatorMicVolume(volumePercent);
+      setFacilitatorMicMuted(message.volume === 0);
+
+      if (mixer) {
+        mixer.setMicVolume(message.volume);
+      }
+    };
+
+    const handleExplorerVolume = (message: import('../../types/control-messages').AudioExplorerVolumeMessage) => {
+      const volumePercent = Math.round(message.volume * 100);
+      setExplorerVolumes((prev) => {
+        const next = new Map(prev);
+        next.set(message.explorerId, {
+          volume: volumePercent,
+          isMuted: message.volume === 0,
+        });
+        return next;
+      });
+
+      if (mixer) {
+        mixer.setExplorerMicVolume(message.explorerId, message.volume);
+      }
+    };
+
+    controlChannel.on('audio:facilitator-volume', handleFacilitatorVolume);
+    controlChannel.on('audio:explorer-volume', handleExplorerVolume);
+
+    return () => {
+      controlChannel.off('audio:facilitator-volume', handleFacilitatorVolume);
+      controlChannel.off('audio:explorer-volume', handleExplorerVolume);
+    };
+  }, [controlChannel, mixer]);
+
   return (
     <section style={panelStyles} aria-label="Facilitator controls">
       <SessionHeader {...sessionOverview} />
@@ -1018,7 +1168,42 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
                 onToggle={handleMicrophoneToggle}
                 onError={handleMicrophoneError}
               />
+              {isMicrophoneActive && (
+                <VolumeControl
+                  label="Facilitator Microphone Volume"
+                  volume={facilitatorMicVolume}
+                  onVolumeChange={handleFacilitatorMicVolumeChange}
+                  onMute={handleFacilitatorMicMute}
+                  isMuted={facilitatorMicMuted}
+                />
+              )}
             </div>
+
+            {participants.filter((p) => p.role === 'explorer').length > 0 && (
+              <div style={sectionStyles}>
+                <h3 style={sectionHeadingStyles}>Explorer Voice Levels</h3>
+                <p style={sectionStatusStyles}>
+                  Control individual volume levels for each explorer's microphone.
+                </p>
+                <div style={controlsLayoutStyles}>
+                  {participants
+                    .filter((p) => p.role === 'explorer')
+                    .map((explorer) => {
+                      const volumeState = explorerVolumes.get(explorer.id) || { volume: 100, isMuted: false };
+                      return (
+                        <VolumeControl
+                          key={explorer.id}
+                          label={`${explorer.username} (Explorer)`}
+                          volume={volumeState.volume}
+                          onVolumeChange={(vol) => handleExplorerVolumeChange(explorer.id, vol)}
+                          onMute={(muted) => handleExplorerMute(explorer.id, muted)}
+                          isMuted={volumeState.isMuted}
+                        />
+                      );
+                    })}
+                </div>
+              </div>
+            )}
 
             <div style={sectionStyles}>
               <h3 style={sectionHeadingStyles}>Recording</h3>

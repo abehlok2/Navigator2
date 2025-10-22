@@ -7,7 +7,9 @@ import { ParticipantList } from './ParticipantList';
 import { MicrophoneControl } from '../audio/MicrophoneControl';
 import { AudioLevelDisplay } from '../audio/AudioLevelDisplay';
 import { BackgroundAudioStatus } from '../audio/BackgroundAudioStatus';
+import { VolumeControl } from '../audio/VolumeControl';
 import { useSessionStore } from '../../state/session';
+import { useAuthStore } from '../../state/auth';
 import type { ControlChannel } from '../../features/webrtc/ControlChannel';
 import { LatencyCompensator } from '../../features/audio/latencyCompensation';
 import type { PeerConnectionManager } from '../../features/webrtc/peerManager';
@@ -53,6 +55,7 @@ export const ExplorerPanel = ({ controlChannel, peerManager, audioMixer }: Explo
   const roomId = useSessionStore((state) => state.roomId);
   const participants = useSessionStore((state) => state.participants);
   const connectionStatus = useSessionStore((state) => state.connectionStatus);
+  const currentUserId = useAuthStore((state) => state.user?.id ?? null);
 
   // Microphone state
   const [isMicActive, setIsMicActive] = useState(false);
@@ -78,6 +81,14 @@ export const ExplorerPanel = ({ controlChannel, peerManager, audioMixer }: Explo
 
   // Latency compensator for synchronized audio playback
   const [latencyCompensator] = useState(() => new LatencyCompensator());
+
+  // Volume controls
+  const [facilitatorVolume, setFacilitatorVolume] = useState(100);
+  const [facilitatorMuted, setFacilitatorMuted] = useState(false);
+  const [backgroundVolume, setBackgroundVolume] = useState(80);
+  const [backgroundMuted, setBackgroundMuted] = useState(false);
+  const [explorerMicVolume, setExplorerMicVolume] = useState(100);
+  const [explorerMicMuted, setExplorerMicMuted] = useState(false);
 
   // Microphone toggle handler
   const handleMicrophoneToggle = useCallback(async (active: boolean, stream?: MediaStream) => {
@@ -129,6 +140,106 @@ export const ExplorerPanel = ({ controlChannel, peerManager, audioMixer }: Explo
       }
     }
   }, [peerManager, participants]);
+
+  // Volume control handlers - these send control messages to sync with facilitator
+  const handleFacilitatorVolumeChange = useCallback((volume: number) => {
+    setFacilitatorVolume(volume);
+    const normalizedVolume = facilitatorMuted ? 0 : volume / 100;
+
+    if (audioMixer) {
+      audioMixer.setFacilitatorVolume(normalizedVolume);
+    }
+
+    if (controlChannel) {
+      controlChannel.send('audio:facilitator-volume', {
+        volume: normalizedVolume,
+      });
+    }
+  }, [audioMixer, controlChannel, facilitatorMuted]);
+
+  const handleFacilitatorMute = useCallback((muted: boolean) => {
+    setFacilitatorMuted(muted);
+    const normalizedVolume = muted ? 0 : facilitatorVolume / 100;
+
+    if (audioMixer) {
+      audioMixer.setFacilitatorVolume(normalizedVolume);
+    }
+
+    if (controlChannel) {
+      controlChannel.send('audio:facilitator-volume', {
+        volume: normalizedVolume,
+      });
+    }
+  }, [audioMixer, controlChannel, facilitatorVolume]);
+
+  const handleBackgroundVolumeChange = useCallback((volume: number) => {
+    setBackgroundVolume(volume);
+    const normalizedVolume = backgroundMuted ? 0 : volume / 100;
+
+    if (audioMixer) {
+      audioMixer.setBackgroundVolume(normalizedVolume);
+    }
+
+    if (controlChannel) {
+      controlChannel.send('audio:volume', {
+        volume: normalizedVolume,
+      });
+    }
+  }, [audioMixer, controlChannel, backgroundMuted]);
+
+  const handleBackgroundMute = useCallback((muted: boolean) => {
+    setBackgroundMuted(muted);
+    const normalizedVolume = muted ? 0 : backgroundVolume / 100;
+
+    if (audioMixer) {
+      audioMixer.setBackgroundVolume(normalizedVolume);
+    }
+
+    if (controlChannel) {
+      controlChannel.send('audio:volume', {
+        volume: normalizedVolume,
+      });
+    }
+  }, [audioMixer, controlChannel, backgroundVolume]);
+
+  const handleExplorerMicVolumeChange = useCallback((volume: number) => {
+    setExplorerMicVolume(volume);
+    const normalizedVolume = explorerMicMuted ? 0 : volume / 100;
+
+    // Get explorer's own ID
+    const explorerId = participants.find((p) => p.role === 'explorer' && p.id === currentUserId)?.id;
+    if (!explorerId) {
+      return;
+    }
+
+    // Explorer can't directly control their own mic volume on facilitator's side
+    // But we send the message so facilitator can update their UI
+    if (controlChannel) {
+      controlChannel.send('audio:explorer-volume', {
+        explorerId,
+        volume: normalizedVolume,
+      });
+    }
+  }, [controlChannel, currentUserId, explorerMicMuted, participants]);
+
+  const handleExplorerMicMute = useCallback((muted: boolean) => {
+    setExplorerMicMuted(muted);
+    const normalizedVolume = muted ? 0 : explorerMicVolume / 100;
+
+    // Get explorer's own ID
+    const explorerId = participants.find((p) => p.role === 'explorer' && p.id === currentUserId)?.id;
+    if (!explorerId) {
+      return;
+    }
+
+    // Send message to facilitator
+    if (controlChannel) {
+      controlChannel.send('audio:explorer-volume', {
+        explorerId,
+        volume: normalizedVolume,
+      });
+    }
+  }, [controlChannel, currentUserId, explorerMicVolume, participants]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -287,6 +398,27 @@ export const ExplorerPanel = ({ controlChannel, peerManager, audioMixer }: Explo
       // Explorers just receive the audio stream with the crossfade already applied
     };
 
+    // Handle audio:facilitator-volume messages
+    const handleFacilitatorVolume = (message: import('../../types/control-messages').AudioFacilitatorVolumeMessage) => {
+      const volumePercent = Math.round(message.volume * 100);
+      setFacilitatorVolume(volumePercent);
+      setFacilitatorMuted(message.volume === 0);
+
+      if (audioMixer) {
+        audioMixer.setFacilitatorVolume(message.volume);
+      }
+    };
+
+    // Handle audio:explorer-volume messages
+    const handleExplorerVolume = (message: import('../../types/control-messages').AudioExplorerVolumeMessage) => {
+      // Check if this message is for this explorer
+      if (currentUserId && message.explorerId === currentUserId) {
+        const volumePercent = Math.round(message.volume * 100);
+        setExplorerMicVolume(volumePercent);
+        setExplorerMicMuted(message.volume === 0);
+      }
+    };
+
     // Register event handlers
     controlChannel.on('audio:play', handleAudioPlay);
     controlChannel.on('audio:pause', handleAudioPause);
@@ -296,6 +428,8 @@ export const ExplorerPanel = ({ controlChannel, peerManager, audioMixer }: Explo
     controlChannel.on('audio:file-loaded', handleAudioFileLoaded);
     controlChannel.on('audio:next-track', handleAudioNextTrack);
     controlChannel.on('audio:crossfade-start', handleAudioCrossfadeStart);
+    controlChannel.on('audio:facilitator-volume', handleFacilitatorVolume);
+    controlChannel.on('audio:explorer-volume', handleExplorerVolume);
 
     // Cleanup handlers on unmount
     return () => {
@@ -307,8 +441,10 @@ export const ExplorerPanel = ({ controlChannel, peerManager, audioMixer }: Explo
       controlChannel.off('audio:file-loaded', handleAudioFileLoaded);
       controlChannel.off('audio:next-track', handleAudioNextTrack);
       controlChannel.off('audio:crossfade-start', handleAudioCrossfadeStart);
+      controlChannel.off('audio:facilitator-volume', handleFacilitatorVolume);
+      controlChannel.off('audio:explorer-volume', handleExplorerVolume);
     };
-  }, [controlChannel, latencyCompensator]);
+  }, [audioMixer, controlChannel, currentUserId, latencyCompensator]);
 
   // Get session overview data
   const sessionOverview = {
@@ -332,6 +468,15 @@ export const ExplorerPanel = ({ controlChannel, peerManager, audioMixer }: Explo
               onToggle={handleMicrophoneToggle}
               isActive={isMicActive}
             />
+            {isMicActive && (
+              <VolumeControl
+                label="My Microphone Volume"
+                volume={explorerMicVolume}
+                onVolumeChange={handleExplorerMicVolumeChange}
+                onMute={handleExplorerMicMute}
+                isMuted={explorerMicMuted}
+              />
+            )}
           </section>
 
           {/* Incoming Audio Level (Facilitator) */}
@@ -341,6 +486,13 @@ export const ExplorerPanel = ({ controlChannel, peerManager, audioMixer }: Explo
               label="Facilitator"
               level={facilitatorAudioLevel}
               isActive={connectionStatus === 'connected'}
+            />
+            <VolumeControl
+              label="Facilitator Voice Volume"
+              volume={facilitatorVolume}
+              onVolumeChange={handleFacilitatorVolumeChange}
+              onMute={handleFacilitatorMute}
+              isMuted={facilitatorMuted}
             />
           </section>
 
@@ -352,6 +504,13 @@ export const ExplorerPanel = ({ controlChannel, peerManager, audioMixer }: Explo
               fileName={backgroundAudioState.fileName}
               currentTime={backgroundAudioState.currentTime}
               duration={backgroundAudioState.duration}
+            />
+            <VolumeControl
+              label="Background Audio Volume"
+              volume={backgroundVolume}
+              onVolumeChange={handleBackgroundVolumeChange}
+              onMute={handleBackgroundMute}
+              isMuted={backgroundMuted}
             />
           </section>
         </div>
