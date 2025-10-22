@@ -154,8 +154,8 @@ export const fetchWithAuth = async <T = JsonRecord>(
   return readJson<T>(response);
 };
 
-export const login = async (email: string, password: string): Promise<AuthResponse> => {
-  const payload: LoginPayload = { email, password };
+export const login = async (username: string, password: string): Promise<AuthResponse> => {
+  const payload: LoginPayload = { username, password };
 
   const result = await fetchWithAuth<AuthResponse>('/auth/login', {
     method: 'POST',
@@ -169,11 +169,12 @@ export const login = async (email: string, password: string): Promise<AuthRespon
 };
 
 export const register = async (
-  email: string,
+  username: string,
   password: string,
+  email?: string,
   displayName?: string,
 ): Promise<AuthResponse> => {
-  const payload: RegisterPayload = { email, password, displayName };
+  const payload: RegisterPayload = { username, password, email, displayName };
 
   const result = await fetchWithAuth<AuthResponse>('/auth/register', {
     method: 'POST',

@@ -2,23 +2,20 @@ import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { Button, Card, Input } from '../components/ui';
-import { HttpError, register } from '../features/auth/client';
+import { HttpError } from '../features/auth/client';
 import { useAuthStore } from '../state/auth';
 
 type FieldErrors = {
-  email?: string;
+  username?: string;
   password?: string;
-  displayName?: string;
 };
 
 export const LoginPage = () => {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [displayName, setDisplayName] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showRegistrationFields, setShowRegistrationFields] = useState(false);
 
   const login = useAuthStore((state) => state.login);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -33,22 +30,19 @@ export const LoginPage = () => {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    const trimmedEmail = email.trim();
-    const trimmedDisplayName = displayName.trim();
+    const trimmedUsername = username.trim();
     const validationErrors: FieldErrors = {};
 
-    if (!trimmedEmail) {
-      validationErrors.email = 'Email is required';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
-      validationErrors.email = 'Enter a valid email address';
+    if (!trimmedUsername) {
+      validationErrors.username = 'Username is required';
+    } else if (trimmedUsername.length < 3) {
+      validationErrors.username = 'Username must be at least 3 characters';
+    } else if (!/^[a-zA-Z0-9_-]+$/.test(trimmedUsername)) {
+      validationErrors.username = 'Username can only contain letters, numbers, hyphens, and underscores';
     }
 
     if (!password) {
       validationErrors.password = 'Password is required';
-    }
-
-    if (showRegistrationFields && !trimmedDisplayName) {
-      validationErrors.displayName = 'Display name is required to create an account';
     }
 
     if (Object.keys(validationErrors).length > 0) {
@@ -62,23 +56,14 @@ export const LoginPage = () => {
     setIsSubmitting(true);
 
     try {
-      if (showRegistrationFields) {
-        await register(trimmedEmail, password, trimmedDisplayName || undefined);
-      }
-
-      await login(trimmedEmail, password);
+      await login(trimmedUsername, password);
       navigate('/home');
     } catch (error) {
       if (error instanceof HttpError) {
-        if (!showRegistrationFields && error.code === 'AUTH_INVALID_CREDENTIALS') {
-          setShowRegistrationFields(true);
-          setFormError(
-            "We couldn't find an account with that email. Provide a display name below to create one.",
-          );
-        } else if (showRegistrationFields && error.code === 'AUTH_EMAIL_IN_USE') {
-          setShowRegistrationFields(false);
-          setDisplayName('');
-          setFormError('An account with that email already exists. Please log in instead.');
+        if (error.code === 'REGISTRATION_DISABLED') {
+          setFormError('Only pre-defined users can access this system. Please contact your administrator.');
+        } else if (error.code === 'AUTH_INVALID_CREDENTIALS') {
+          setFormError('Invalid username or password.');
         } else {
           setFormError(error.message || 'Unable to complete request. Please try again.');
         }
@@ -107,26 +92,26 @@ export const LoginPage = () => {
       <Card title="Sign in to Navigator">
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <Input
-            label="Email"
-            name="email"
-            type="email"
-            value={email}
+            label="Username"
+            name="username"
+            type="text"
+            value={username}
             onChange={(event) => {
-              setEmail(event.target.value);
-              if (fieldErrors.email) {
+              setUsername(event.target.value);
+              if (fieldErrors.username) {
                 setFieldErrors((current) => {
-                  const { email: _removed, ...rest } = current;
+                  const { username: _removed, ...rest } = current;
                   return rest;
                 });
               }
-              if (formError && showRegistrationFields) {
+              if (formError) {
                 setFormError(null);
               }
             }}
-            placeholder="Enter your email"
-            error={fieldErrors.email}
+            placeholder="Enter your username"
+            error={fieldErrors.username}
             disabled={isSubmitting}
-            autoComplete="email"
+            autoComplete="username"
           />
           <Input
             type="password"
@@ -145,39 +130,15 @@ export const LoginPage = () => {
             placeholder="Enter your password"
             error={fieldErrors.password}
             disabled={isSubmitting}
-            autoComplete={showRegistrationFields ? 'new-password' : 'current-password'}
+            autoComplete="current-password"
           />
-          {showRegistrationFields && (
-            <Input
-              label="Display name"
-              name="displayName"
-              value={displayName}
-              onChange={(event) => {
-                setDisplayName(event.target.value);
-                if (fieldErrors.displayName) {
-                  setFieldErrors((current) => {
-                    const { displayName: _removed, ...rest } = current;
-                    return rest;
-                  });
-                }
-              }}
-              placeholder="How should others see you?"
-              error={fieldErrors.displayName}
-              disabled={isSubmitting}
-              autoComplete="nickname"
-            />
-          )}
           {formError && (
             <p role="alert" style={{ color: 'var(--color-danger, #dc2626)' }}>
               {formError}
             </p>
           )}
           <Button type="submit" disabled={isSubmitting}>
-            {isSubmitting
-              ? 'Submitting…'
-              : showRegistrationFields
-              ? 'Register & Sign in'
-              : 'Login'}
+            {isSubmitting ? 'Signing in…' : 'Sign in'}
           </Button>
         </form>
       </Card>

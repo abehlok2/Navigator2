@@ -1,23 +1,26 @@
 import crypto from 'crypto';
 
 export interface CreateUserInput {
-  email: string;
+  username: string;
   password: string;
+  email?: string;
   displayName?: string;
 }
 
 export interface StoredUser {
   id: string;
-  email: string;
+  username: string;
   passwordHash: string;
   salt: string;
+  email?: string;
   displayName?: string;
   createdAt: number;
 }
 
 export interface PublicUser {
   id: string;
-  email: string;
+  username: string;
+  email?: string;
   displayName?: string;
 }
 
@@ -29,7 +32,7 @@ const hashPassword = (password: string, salt: string): string =>
   crypto.pbkdf2Sync(password, salt, HASH_ITERATIONS, HASH_LENGTH, HASH_DIGEST).toString('hex');
 
 export class UserStore {
-  private usersByEmail = new Map<string, StoredUser>();
+  private usersByUsername = new Map<string, StoredUser>();
   private usersById = new Map<string, StoredUser>();
 
   createUser(input: CreateUserInput): StoredUser {
@@ -39,24 +42,25 @@ export class UserStore {
 
     const user: StoredUser = {
       id,
-      email: input.email.toLowerCase(),
+      username: input.username.toLowerCase(),
+      email: input.email?.toLowerCase(),
       displayName: input.displayName,
       passwordHash,
       salt,
       createdAt: Date.now(),
     };
 
-    this.usersByEmail.set(user.email, user);
+    this.usersByUsername.set(user.username, user);
     this.usersById.set(user.id, user);
     return user;
   }
 
   upsertUser(input: CreateUserInput): StoredUser {
-    const email = input.email.toLowerCase();
-    const existing = this.usersByEmail.get(email);
+    const username = input.username.toLowerCase();
+    const existing = this.usersByUsername.get(username);
 
     if (!existing) {
-      return this.createUser({ ...input, email });
+      return this.createUser(input);
     }
 
     const salt = crypto.randomBytes(16).toString('hex');
@@ -64,23 +68,24 @@ export class UserStore {
 
     const updated: StoredUser = {
       ...existing,
-      email,
+      username,
+      email: input.email?.toLowerCase() ?? existing.email,
       displayName: input.displayName ?? existing.displayName,
       passwordHash,
       salt,
     };
 
-    this.usersByEmail.set(email, updated);
+    this.usersByUsername.set(username, updated);
     this.usersById.set(updated.id, updated);
     return updated;
   }
 
-  hasEmail(email: string): boolean {
-    return this.usersByEmail.has(email.toLowerCase());
+  hasUsername(username: string): boolean {
+    return this.usersByUsername.has(username.toLowerCase());
   }
 
-  getByEmail(email: string): StoredUser | undefined {
-    return this.usersByEmail.get(email.toLowerCase());
+  getByUsername(username: string): StoredUser | undefined {
+    return this.usersByUsername.get(username.toLowerCase());
   }
 
   getById(id: string): StoredUser | undefined {
@@ -93,7 +98,7 @@ export class UserStore {
   }
 
   toPublicUser(user: StoredUser): PublicUser {
-    const { id, email, displayName } = user;
-    return { id, email, displayName };
+    const { id, username, email, displayName } = user;
+    return { id, username, email, displayName };
   }
 }

@@ -4,17 +4,19 @@ export type UserRole = ParticipantRole;
 
 export interface User {
   id: string;
-  email: string;
+  username: string;
+  email?: string;
   displayName?: string;
   role?: UserRole;
 }
 
 export interface LoginPayload {
-  email: string;
+  username: string;
   password: string;
 }
 
 export interface RegisterPayload extends LoginPayload {
+  email?: string;
   displayName?: string;
 }
 
