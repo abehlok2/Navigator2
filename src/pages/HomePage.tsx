@@ -118,9 +118,8 @@ export const HomePage = () => {
     };
   }, [signalingClient, token]);
 
-  useEffect(() => {
-    clearSession();
-  }, [clearSession]);
+  // Only clear session when explicitly navigating to home (not on mount/refresh)
+  // Session persistence will handle reconnection scenarios
 
   const ensureConnected = useCallback(async () => {
     if (!token) {

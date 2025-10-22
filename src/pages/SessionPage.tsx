@@ -162,6 +162,88 @@ export const SessionPage = () => {
   // Audio mixers for receiving/mixing audio
   const audioMixerRef = useRef<ExplorerAudioMixer | ListenerAudioMixer | FacilitatorAudioMixer | null>(null);
 
+  // Auto-rejoin logic: Attempt to rejoin room after refresh if session data is persisted
+  const autoRejoinAttemptedRef = useRef(false);
+  useEffect(() => {
+    // Only attempt auto-rejoin once
+    if (autoRejoinAttemptedRef.current) {
+      return;
+    }
+
+    // Check if we're not connected and have a roomId in the URL
+    if (connectionStatus === 'connected' || !roomId) {
+      return;
+    }
+
+    // Get persisted session state
+    const sessionState = useSessionStore.getState();
+    const hasPersistedSession =
+      sessionState.roomId &&
+      sessionState.userRole &&
+      sessionState.roomPassword !== undefined;
+
+    // If we have persisted session data matching the URL roomId, auto-rejoin
+    if (hasPersistedSession && sessionState.roomId === roomId) {
+      console.log('[SessionPage] Detected page refresh with persisted session. Auto-rejoining room...');
+      autoRejoinAttemptedRef.current = true;
+
+      // Attempt to rejoin the room
+      const attemptRejoin = async () => {
+        try {
+          setConnectionStatus('connecting');
+
+          const passwordToUse = sessionState.roomPassword ?? '';
+          const roleToUse = sessionState.userRole;
+
+          // Connect to signaling server (will reuse existing connection if already connected)
+          const token = localStorage.getItem('navigator.auth.token');
+          if (!token) {
+            throw new Error('No authentication token found');
+          }
+          await signalingClient.connect(JSON.parse(token));
+
+          const { participantId, participants } = await signalingClient.joinRoom(
+            roomId,
+            passwordToUse ?? '',
+            roleToUse && roleToUse !== 'facilitator' ? roleToUse : undefined,
+          );
+
+          const normalizedParticipants = participants.map((participant) => ({ ...participant }));
+
+          if (!normalizedParticipants.some((participant) => participant.id === participantId)) {
+            normalizedParticipants.push({
+              id: participantId,
+              username: 'You',
+              role: roleToUse ?? 'listener',
+              isOnline: true,
+            });
+          }
+
+          setRoom({
+            roomId,
+            role: roleToUse ?? 'listener',
+            userId: participantId,
+            password: passwordToUse ? passwordToUse : null,
+            participants: normalizedParticipants,
+          });
+          setParticipants(normalizedParticipants);
+          setConnectionStatus('connected');
+          setSessionError(null);
+
+          console.log('[SessionPage] Successfully auto-rejoined room');
+        } catch (error) {
+          console.error('[SessionPage] Auto-rejoin failed:', error);
+          setConnectionStatus('error');
+          setSessionError(
+            createSessionError(error, 'Failed to reconnect to the session after page refresh')
+          );
+        }
+      };
+
+      void attemptRejoin();
+    }
+  }, [connectionStatus, roomId, signalingClient, setRoom, setParticipants, setConnectionStatus]);
+
   // Initialize audio mixer for all roles
   useEffect(() => {
     if (!userRole) {
@@ -254,9 +336,13 @@ export const SessionPage = () => {
             if (mixer instanceof ExplorerAudioMixer) {
               // Explorer mixer connects facilitator stream
               mixer.connectFacilitatorStream(stream);
+              // Resume audio context to ensure audio plays (browser autoplay policy)
+              void mixer.resumeAudioContext();
             } else if (mixer instanceof ListenerAudioMixer) {
               // Listener mixer adds facilitator as an audio source
               mixer.addAudioSource(participantId, stream, 'Facilitator');
+              // Resume audio context to ensure audio plays (browser autoplay policy)
+              void mixer.resumeAudioContext();
             }
           }
         }

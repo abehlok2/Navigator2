@@ -470,8 +470,9 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
     setSessionError(null);
     startProgressUpdates();
 
-    // Broadcast mixed stream when background audio starts playing
+    // Resume audio context to ensure audio plays (browser autoplay policy)
     if (mixer) {
+      void mixer.resumeAudioContext();
       const mixedStream = mixer.getMixedStream();
       void broadcastAudioTrack(mixedStream);
     }
