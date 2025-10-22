@@ -268,6 +268,25 @@ export const ExplorerPanel = ({ controlChannel, peerManager, audioMixer }: Explo
       }));
     };
 
+    // Handle audio:next-track messages
+    const handleAudioNextTrack = (message: import('../../types/control-messages').AudioNextTrackMessage) => {
+      console.log('[ExplorerPanel] Next track queued:', message.nextFileName);
+      // Update UI to show the next track info
+      setBackgroundAudioState((prev) => ({
+        ...prev,
+        fileName: message.nextFileName,
+        duration: message.nextDuration,
+        currentTime: 0,
+      }));
+    };
+
+    // Handle audio:crossfade-start messages
+    const handleAudioCrossfadeStart = (message: import('../../types/control-messages').AudioCrossfadeStartMessage) => {
+      console.log('[ExplorerPanel] Crossfade started from', message.fromFileName, 'to', message.toFileName);
+      // The actual audio crossfade happens automatically on the facilitator side
+      // Explorers just receive the audio stream with the crossfade already applied
+    };
+
     // Register event handlers
     controlChannel.on('audio:play', handleAudioPlay);
     controlChannel.on('audio:pause', handleAudioPause);
@@ -275,6 +294,8 @@ export const ExplorerPanel = ({ controlChannel, peerManager, audioMixer }: Explo
     controlChannel.on('audio:progress', handleAudioProgress);
     controlChannel.on('audio:volume', handleAudioVolume);
     controlChannel.on('audio:file-loaded', handleAudioFileLoaded);
+    controlChannel.on('audio:next-track', handleAudioNextTrack);
+    controlChannel.on('audio:crossfade-start', handleAudioCrossfadeStart);
 
     // Cleanup handlers on unmount
     return () => {
@@ -284,6 +305,8 @@ export const ExplorerPanel = ({ controlChannel, peerManager, audioMixer }: Explo
       controlChannel.off('audio:progress', handleAudioProgress);
       controlChannel.off('audio:volume', handleAudioVolume);
       controlChannel.off('audio:file-loaded', handleAudioFileLoaded);
+      controlChannel.off('audio:next-track', handleAudioNextTrack);
+      controlChannel.off('audio:crossfade-start', handleAudioCrossfadeStart);
     };
   }, [controlChannel, latencyCompensator]);
 
