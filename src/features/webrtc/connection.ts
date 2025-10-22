@@ -14,11 +14,17 @@ export interface IceGatheringSummary {
 export async function addAudioTrack(
   pc: RTCPeerConnection,
   stream: MediaStream,
+  contentHint?: 'music' | 'speech',
 ): Promise<RTCRtpSender> {
   const audioTrack = stream.getAudioTracks()[0];
 
   if (!audioTrack) {
     throw new Error('No audio track available');
+  }
+
+  // Set content hint if provided
+  if (contentHint) {
+    audioTrack.contentHint = contentHint;
   }
 
   const sender = pc.addTrack(audioTrack, stream);

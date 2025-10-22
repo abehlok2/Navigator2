@@ -9,6 +9,8 @@ export class FacilitatorAudioMixer {
   private backgroundGain: GainNode;
   private masterGain: GainNode;
   private destination: MediaStreamAudioDestinationNode;
+  private facilitatorDestination: MediaStreamAudioDestinationNode;
+  private backgroundDestination: MediaStreamAudioDestinationNode;
 
   constructor() {
     this.audioContext = new AudioContext({ sampleRate: 48000 });
@@ -17,11 +19,18 @@ export class FacilitatorAudioMixer {
     this.backgroundGain = this.audioContext.createGain();
     this.masterGain = this.audioContext.createGain();
     this.destination = this.audioContext.createMediaStreamDestination();
+    this.facilitatorDestination = this.audioContext.createMediaStreamDestination();
+    this.backgroundDestination = this.audioContext.createMediaStreamDestination();
 
     this.micGain.gain.value = 1.0;
     this.backgroundGain.gain.value = 0.7;
     this.masterGain.gain.value = 1.0;
 
+    // Connect mic and background to their individual destinations
+    this.micGain.connect(this.facilitatorDestination);
+    this.backgroundGain.connect(this.backgroundDestination);
+
+    // Also connect to master for local playback
     this.micGain.connect(this.masterGain);
     this.backgroundGain.connect(this.masterGain);
 
@@ -169,6 +178,47 @@ export class FacilitatorAudioMixer {
       }
       console.log(`[FacilitatorAudioMixer] Track ${index}: kind=${track.kind}, enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
     });
+
+    return stream;
+  }
+
+  /**
+   * Get a stream containing only the facilitator's microphone
+   * (for broadcasting separately from background audio)
+   */
+  getFacilitatorStream(): MediaStream {
+    const stream = this.facilitatorDestination.stream;
+    const track = stream.getAudioTracks()[0];
+    if (track) {
+      track.contentHint = 'speech';
+    }
+
+    console.log('[FacilitatorAudioMixer] Getting facilitator stream');
+    console.log('[FacilitatorAudioMixer] Stream active:', stream.active);
+    console.log('[FacilitatorAudioMixer] Stream tracks:', stream.getTracks().length);
+
+    return stream;
+  }
+
+  /**
+   * Get a stream containing only the background audio
+   * (for broadcasting separately from microphone)
+   */
+  getBackgroundStream(): MediaStream | null {
+    if (!this.backgroundSource) {
+      console.log('[FacilitatorAudioMixer] No background source available');
+      return null;
+    }
+
+    const stream = this.backgroundDestination.stream;
+    const track = stream.getAudioTracks()[0];
+    if (track) {
+      track.contentHint = 'music';
+    }
+
+    console.log('[FacilitatorAudioMixer] Getting background stream');
+    console.log('[FacilitatorAudioMixer] Stream active:', stream.active);
+    console.log('[FacilitatorAudioMixer] Stream tracks:', stream.getTracks().length);
 
     return stream;
   }

@@ -114,26 +114,29 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
   const levelAnimationRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const progressIntervalRef = useRef<number | null>(null);
-  const audioSendersRef = useRef<Map<string, RTCRtpSender>>(new Map());
+  const facilitatorSendersRef = useRef<Map<string, RTCRtpSender>>(new Map());
+  const backgroundSendersRef = useRef<Map<string, RTCRtpSender>>(new Map());
   const lastProgressSecondRef = useRef<number | null>(null);
 
-  // Broadcast audio track to all peer connections
-  const broadcastAudioTrack = useCallback(
-    async (mixedStream: MediaStream) => {
+  // Broadcast facilitator microphone track to all peer connections
+  const broadcastFacilitatorTrack = useCallback(
+    async (facilitatorStream: MediaStream) => {
       if (!peerManager) {
-        console.warn('No peer manager available to broadcast audio');
+        console.warn('[FacilitatorPanel] No peer manager available to broadcast facilitator audio');
         return;
       }
 
       const participantIds = peerManager.getParticipantIds();
-      const senders = audioSendersRef.current;
+      const senders = facilitatorSendersRef.current;
+
+      console.log('[FacilitatorPanel] Broadcasting facilitator track to peers...');
 
       // Clean up senders for participants that are no longer connected
       for (const [participantId, sender] of senders.entries()) {
         if (!participantIds.includes(participantId)) {
           const pc = peerManager.getConnection(participantId);
           if (!pc || pc.connectionState === 'closed' || pc.connectionState === 'failed') {
-            console.log(`[FacilitatorPanel] Removing stale sender for ${participantId}`);
+            console.log(`[FacilitatorPanel] Removing stale facilitator sender for ${participantId}`);
             senders.delete(participantId);
           }
         }
@@ -157,19 +160,16 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
 
           if (existingSender) {
             // Replace track on existing sender
-            await replaceAudioTrack(existingSender, mixedStream);
-            console.log(`[FacilitatorPanel] Replaced audio track for ${participantId}`);
+            await replaceAudioTrack(existingSender, facilitatorStream);
+            console.log(`[FacilitatorPanel] Replaced facilitator track for ${participantId}`);
           } else {
             // Add new track and store sender
-            const sender = await addAudioTrack(pc, mixedStream);
+            const sender = await addAudioTrack(pc, facilitatorStream, 'speech');
             senders.set(participantId, sender);
-            console.log(`[FacilitatorPanel] Added audio track for ${participantId}`);
-
-            // Create offer and send via signaling
-            // Note: The negotiationNeeded event in SessionPage will handle this
+            console.log(`[FacilitatorPanel] Added facilitator track for ${participantId}`);
           }
         } catch (error) {
-          console.error(`[FacilitatorPanel] Failed to broadcast audio to ${participantId}:`, error);
+          console.error(`[FacilitatorPanel] Failed to broadcast facilitator audio to ${participantId}:`, error);
           // Remove sender on error as it may be invalid
           senders.delete(participantId);
         }
@@ -178,9 +178,96 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
     [peerManager],
   );
 
-  // Remove audio tracks from all peer connections
+  // Broadcast background audio track to all peer connections
+  const broadcastBackgroundTrack = useCallback(
+    async (backgroundStream: MediaStream) => {
+      if (!peerManager) {
+        console.warn('[FacilitatorPanel] No peer manager available to broadcast background audio');
+        return;
+      }
+
+      const participantIds = peerManager.getParticipantIds();
+      const senders = backgroundSendersRef.current;
+
+      console.log('[FacilitatorPanel] Broadcasting background track to peers...');
+
+      // Clean up senders for participants that are no longer connected
+      for (const [participantId, sender] of senders.entries()) {
+        if (!participantIds.includes(participantId)) {
+          const pc = peerManager.getConnection(participantId);
+          if (!pc || pc.connectionState === 'closed' || pc.connectionState === 'failed') {
+            console.log(`[FacilitatorPanel] Removing stale background sender for ${participantId}`);
+            senders.delete(participantId);
+          }
+        }
+      }
+
+      for (const participantId of participantIds) {
+        const pc = peerManager.getConnection(participantId);
+        if (!pc) {
+          continue;
+        }
+
+        // Skip if connection is closed or failed
+        if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
+          console.log(`[FacilitatorPanel] Skipping broadcast to closed/failed connection: ${participantId}`);
+          senders.delete(participantId);
+          continue;
+        }
+
+        try {
+          const existingSender = senders.get(participantId);
+
+          if (existingSender) {
+            // Replace track on existing sender
+            await replaceAudioTrack(existingSender, backgroundStream);
+            console.log(`[FacilitatorPanel] Replaced background track for ${participantId}`);
+          } else {
+            // Add new track and store sender
+            const sender = await addAudioTrack(pc, backgroundStream, 'music');
+            senders.set(participantId, sender);
+            console.log(`[FacilitatorPanel] Added background track for ${participantId}`);
+          }
+        } catch (error) {
+          console.error(`[FacilitatorPanel] Failed to broadcast background audio to ${participantId}:`, error);
+          // Remove sender on error as it may be invalid
+          senders.delete(participantId);
+        }
+      }
+    },
+    [peerManager],
+  );
+
+  // Remove background audio tracks from all peer connections
+  const detachBackgroundSenders = useCallback(async () => {
+    const senders = backgroundSendersRef.current;
+
+    console.log('[FacilitatorPanel] Detaching background senders...');
+
+    for (const [participantId, sender] of senders.entries()) {
+      try {
+        // Check if the peer connection is still open before trying to remove track
+        const pc = peerManager?.getConnection(participantId);
+        if (pc && pc.connectionState !== 'closed' && pc.connectionState !== 'failed') {
+          pc.removeTrack(sender);
+          console.log(`[FacilitatorPanel] Removed background track for ${participantId}`);
+        } else {
+          console.log(`[FacilitatorPanel] Skipping closed/failed connection for ${participantId}`);
+        }
+      } catch (error) {
+        console.error(`[FacilitatorPanel] Failed to remove background track for ${participantId}:`, error);
+      }
+    }
+
+    senders.clear();
+  }, [peerManager]);
+
+  // Remove all audio tracks from all peer connections
   const detachAudioSenders = useCallback(async () => {
-    const senders = audioSendersRef.current;
+    console.log('[FacilitatorPanel] Detaching all audio senders...');
+    await detachBackgroundSenders();
+
+    const senders = facilitatorSendersRef.current;
 
     for (const [participantId, sender] of senders.entries()) {
       try {
@@ -188,17 +275,17 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
         const pc = peerManager?.getConnection(participantId);
         if (pc && pc.connectionState !== 'closed' && pc.connectionState !== 'failed') {
           await sender.replaceTrack(null);
-          console.log(`[FacilitatorPanel] Cleared audio track for ${participantId}`);
+          console.log(`[FacilitatorPanel] Cleared facilitator track for ${participantId}`);
         } else {
           console.log(`[FacilitatorPanel] Skipping closed/failed connection for ${participantId}`);
         }
       } catch (error) {
-        console.error(`[FacilitatorPanel] Failed to clear audio track for ${participantId}:`, error);
+        console.error(`[FacilitatorPanel] Failed to clear facilitator track for ${participantId}:`, error);
       }
     }
 
     senders.clear();
-  }, [peerManager]);
+  }, [detachBackgroundSenders, peerManager]);
 
   const sessionOverview = useMemo(
     () => ({
@@ -311,9 +398,9 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
         if (mixer) {
           try {
             mixer.connectMicrophone(stream);
-            // Broadcast the updated mixed stream to all peer connections
-            const mixedStream = mixer.getMixedStream();
-            void broadcastAudioTrack(mixedStream);
+            // Broadcast the facilitator microphone stream to all peer connections
+            const facilitatorStream = mixer.getFacilitatorStream();
+            void broadcastFacilitatorTrack(facilitatorStream);
           } catch (error) {
             console.error('Unable to connect microphone to mixer:', error);
           }
@@ -328,17 +415,26 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
         stopLevelMonitoring();
         setAudioLevels({ microphone: 0 });
 
-        // If background audio is also not playing, detach all audio senders
-        // Otherwise, update with the background-only stream
-        if (mixer && audioPlayer && playbackState === 'playing') {
-          const mixedStream = mixer.getMixedStream();
-          void broadcastAudioTrack(mixedStream);
-        } else {
-          void detachAudioSenders();
-        }
+        // Remove facilitator track (but keep background track if playing)
+        const removeFacilitatorTracks = async () => {
+          const senders = facilitatorSendersRef.current;
+          for (const [participantId, sender] of senders.entries()) {
+            try {
+              const pc = peerManager?.getConnection(participantId);
+              if (pc && pc.connectionState !== 'closed' && pc.connectionState !== 'failed') {
+                await sender.replaceTrack(null);
+                console.log(`[FacilitatorPanel] Cleared facilitator track for ${participantId}`);
+              }
+            } catch (error) {
+              console.error(`[FacilitatorPanel] Failed to clear facilitator track:`, error);
+            }
+          }
+          senders.clear();
+        };
+        void removeFacilitatorTracks();
       }
     },
-    [broadcastAudioTrack, detachAudioSenders, mixer, audioPlayer, playbackState, startLevelMonitoring, stopLevelMonitoring],
+    [broadcastFacilitatorTrack, peerManager, mixer, startLevelMonitoring, stopLevelMonitoring],
   );
 
   const handleRecordingStart = useCallback(async () => {
@@ -509,16 +605,28 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
 
-      const mixedStream = mixer.getMixedStream();
-      console.log('[FacilitatorPanel] Mixed stream active:', mixedStream.active);
-      console.log('[FacilitatorPanel] Mixed stream tracks:', mixedStream.getTracks().length);
+      // Broadcast facilitator track if microphone is active
+      if (isMicrophoneActive) {
+        const facilitatorStream = mixer.getFacilitatorStream();
+        console.log('[FacilitatorPanel] Facilitator stream active:', facilitatorStream.active);
+        await broadcastFacilitatorTrack(facilitatorStream);
+      }
 
-      mixedStream.getTracks().forEach((track, index) => {
-        console.log(`[FacilitatorPanel] Track ${index}: kind=${track.kind}, enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
-      });
+      // Broadcast background audio track
+      const backgroundStream = mixer.getBackgroundStream();
+      if (backgroundStream) {
+        console.log('[FacilitatorPanel] Background stream active:', backgroundStream.active);
+        console.log('[FacilitatorPanel] Background stream tracks:', backgroundStream.getTracks().length);
 
-      console.log('[FacilitatorPanel] Broadcasting audio track to peers...');
-      await broadcastAudioTrack(mixedStream);
+        backgroundStream.getTracks().forEach((track, index) => {
+          console.log(`[FacilitatorPanel] Background track ${index}: kind=${track.kind}, enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}, contentHint=${track.contentHint}`);
+        });
+
+        console.log('[FacilitatorPanel] Broadcasting background track to peers...');
+        await broadcastBackgroundTrack(backgroundStream);
+      } else {
+        console.warn('[FacilitatorPanel] No background stream available');
+      }
     } else {
       console.warn('[FacilitatorPanel] No mixer available to broadcast');
     }
@@ -527,7 +635,7 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
       fileName: currentFile?.name,
     });
     console.log('[FacilitatorPanel] ========== PLAY COMPLETE ==========');
-  }, [broadcastAudioTrack, currentFile, mixer, sendControlMessage, startProgressUpdates, audioPlayer]);
+  }, [broadcastFacilitatorTrack, broadcastBackgroundTrack, currentFile, isMicrophoneActive, mixer, sendControlMessage, startProgressUpdates, audioPlayer]);
 
   const handlePause = useCallback(() => {
     const currentTime = audioPlayer?.currentTime ?? playbackPosition;
@@ -549,17 +657,11 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
       audioPlayer.currentTime = 0;
     }
 
-    // If microphone is also not active, detach all audio senders
-    // Otherwise, keep broadcasting microphone-only stream
-    if (mixer && isMicrophoneActive) {
-      const mixedStream = mixer.getMixedStream();
-      void broadcastAudioTrack(mixedStream);
-    } else {
-      void detachAudioSenders();
-    }
+    // Remove background audio track from all peer connections
+    void detachBackgroundSenders();
 
     sendControlMessage('audio:stop', {});
-  }, [audioPlayer, broadcastAudioTrack, detachAudioSenders, isMicrophoneActive, mixer, sendControlMessage, stopProgressUpdates]);
+  }, [audioPlayer, detachBackgroundSenders, sendControlMessage, stopProgressUpdates]);
 
   const handleSeek = useCallback(
     (seconds: number) => {
