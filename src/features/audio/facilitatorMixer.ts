@@ -24,7 +24,10 @@ export class FacilitatorAudioMixer {
 
     this.micGain.connect(this.masterGain);
     this.backgroundGain.connect(this.masterGain);
+
+    // Connect to both broadcast destination (for peers) and local speakers (for facilitator to hear)
     this.masterGain.connect(this.destination);
+    this.masterGain.connect(this.audioContext.destination);
   }
 
   connectMicrophone(micStream: MediaStream): void {
@@ -157,9 +160,16 @@ export class FacilitatorAudioMixer {
     console.log('[FacilitatorAudioMixer] Getting mixed stream');
     console.log('[FacilitatorAudioMixer] Stream active:', stream.active);
     console.log('[FacilitatorAudioMixer] Stream tracks:', stream.getTracks().length);
+
+    // Ensure all tracks are enabled
     stream.getTracks().forEach((track, index) => {
+      if (!track.enabled) {
+        console.log(`[FacilitatorAudioMixer] Enabling track ${index}`);
+        track.enabled = true;
+      }
       console.log(`[FacilitatorAudioMixer] Track ${index}: kind=${track.kind}, enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
     });
+
     return stream;
   }
 
