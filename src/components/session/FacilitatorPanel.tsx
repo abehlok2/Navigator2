@@ -434,6 +434,12 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
 
   const handleAudioLoad = useCallback(
     (file: File, audio: HTMLAudioElement) => {
+      console.log('[FacilitatorPanel] ========== AUDIO FILE LOADED ==========');
+      console.log('[FacilitatorPanel] File:', file.name);
+      console.log('[FacilitatorPanel] Duration:', audio.duration);
+      console.log('[FacilitatorPanel] Ready state:', audio.readyState);
+      console.log('[FacilitatorPanel] Mixer available:', !!mixer);
+
       setCurrentFile(file);
       setPlaybackState('stopped');
       setPlaybackPosition(0);
@@ -450,37 +456,60 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
 
       if (mixer) {
         try {
+          console.log('[FacilitatorPanel] Connecting background audio to mixer...');
           mixer.connectBackgroundAudio(audio);
           mixer.setBackgroundVolume(targetVolume);
+          console.log('[FacilitatorPanel] Background audio connected successfully');
         } catch (error) {
-          console.error('Unable to connect background audio to mixer:', error);
+          console.error('[FacilitatorPanel] Unable to connect background audio to mixer:', error);
         }
+      } else {
+        console.warn('[FacilitatorPanel] No mixer available to connect audio');
       }
 
       sendControlMessage('audio:file-loaded', {
         fileName: file.name,
         duration: durationValue,
       });
+
+      console.log('[FacilitatorPanel] ========== AUDIO FILE LOAD COMPLETE ==========');
     },
     [backgroundVolume, mixer, sendControlMessage, stopProgressUpdates],
   );
 
   const handlePlay = useCallback(() => {
+    console.log('[FacilitatorPanel] ========== PLAY CLICKED ==========');
+    console.log('[FacilitatorPanel] Current file:', currentFile?.name);
+    console.log('[FacilitatorPanel] Mixer available:', !!mixer);
+    console.log('[FacilitatorPanel] Audio player available:', !!audioPlayer);
+
     setPlaybackState('playing');
     setSessionError(null);
     startProgressUpdates();
 
     // Resume audio context to ensure audio plays (browser autoplay policy)
     if (mixer) {
+      console.log('[FacilitatorPanel] Resuming audio context...');
       void mixer.resumeAudioContext();
       const mixedStream = mixer.getMixedStream();
+      console.log('[FacilitatorPanel] Mixed stream active:', mixedStream.active);
+      console.log('[FacilitatorPanel] Mixed stream tracks:', mixedStream.getTracks().length);
+
+      mixedStream.getTracks().forEach((track, index) => {
+        console.log(`[FacilitatorPanel] Track ${index}: kind=${track.kind}, enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+      });
+
+      console.log('[FacilitatorPanel] Broadcasting audio track to peers...');
       void broadcastAudioTrack(mixedStream);
+    } else {
+      console.warn('[FacilitatorPanel] No mixer available to broadcast');
     }
 
     sendControlMessage('audio:play', {
       fileName: currentFile?.name,
     });
-  }, [broadcastAudioTrack, currentFile, mixer, sendControlMessage, startProgressUpdates]);
+    console.log('[FacilitatorPanel] ========== PLAY COMPLETE ==========');
+  }, [broadcastAudioTrack, currentFile, mixer, sendControlMessage, startProgressUpdates, audioPlayer]);
 
   const handlePause = useCallback(() => {
     const currentTime = audioPlayer?.currentTime ?? playbackPosition;

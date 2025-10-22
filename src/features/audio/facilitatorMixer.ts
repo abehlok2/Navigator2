@@ -92,29 +92,49 @@ export class FacilitatorAudioMixer {
   }
 
   connectBackgroundAudio(audioElement: HTMLAudioElement): void {
+    console.log('[FacilitatorAudioMixer] ========== CONNECTING BACKGROUND AUDIO ==========');
+    console.log('[FacilitatorAudioMixer] Audio element provided:', !!audioElement);
+    console.log('[FacilitatorAudioMixer] Audio element ready state:', audioElement?.readyState);
+    console.log('[FacilitatorAudioMixer] Audio element duration:', audioElement?.duration);
+    console.log('[FacilitatorAudioMixer] Audio element paused:', audioElement?.paused);
+    console.log('[FacilitatorAudioMixer] Same audio element as before:', this.backgroundAudioElement === audioElement);
+    console.log('[FacilitatorAudioMixer] Existing background source:', !!this.backgroundSource);
+
     // If the audio element hasn't changed and we already have a source, just ensure it's connected
     if (this.backgroundAudioElement === audioElement && this.backgroundSource) {
       // Already connected to this audio element, no need to recreate the source
       // Just ensure it's connected to the background gain
+      console.log('[FacilitatorAudioMixer] Reusing existing audio source');
       try {
         this.backgroundSource.connect(this.backgroundGain);
+        console.log('[FacilitatorAudioMixer] Reconnected existing source (or already connected)');
       } catch (error) {
         // Already connected, ignore the error
+        console.log('[FacilitatorAudioMixer] Source already connected');
       }
       return;
     }
 
     // Disconnect previous source if it exists
     if (this.backgroundSource) {
+      console.log('[FacilitatorAudioMixer] Disconnecting previous background source');
       this.backgroundSource.disconnect();
       this.backgroundSource = null;
     }
 
     // Create new source for the new audio element
     // Note: createMediaElementSource can only be called once per HTMLAudioElement
+    console.log('[FacilitatorAudioMixer] Creating new MediaElementSource');
+    console.log('[FacilitatorAudioMixer] AudioContext state:', this.audioContext.state);
+
     this.backgroundSource = this.audioContext.createMediaElementSource(audioElement);
     this.backgroundSource.connect(this.backgroundGain);
     this.backgroundAudioElement = audioElement;
+
+    console.log('[FacilitatorAudioMixer] Background audio connected successfully');
+    console.log('[FacilitatorAudioMixer] Background gain value:', this.backgroundGain.gain.value);
+    console.log('[FacilitatorAudioMixer] Master gain value:', this.masterGain.gain.value);
+    console.log('[FacilitatorAudioMixer] ========== BACKGROUND AUDIO CONNECTION COMPLETE ==========');
   }
 
   /**
@@ -133,7 +153,14 @@ export class FacilitatorAudioMixer {
   }
 
   getMixedStream(): MediaStream {
-    return this.destination.stream;
+    const stream = this.destination.stream;
+    console.log('[FacilitatorAudioMixer] Getting mixed stream');
+    console.log('[FacilitatorAudioMixer] Stream active:', stream.active);
+    console.log('[FacilitatorAudioMixer] Stream tracks:', stream.getTracks().length);
+    stream.getTracks().forEach((track, index) => {
+      console.log(`[FacilitatorAudioMixer] Track ${index}: kind=${track.kind}, enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+    });
+    return stream;
   }
 
   setMicVolume(value: number): void {
