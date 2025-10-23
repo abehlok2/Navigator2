@@ -632,14 +632,14 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
 
-      // Broadcast facilitator track if microphone is active
-      if (isMicrophoneActive) {
-        const facilitatorStream = mixer.getFacilitatorStream();
-        console.log('[FacilitatorPanel] Facilitator stream active:', facilitatorStream.active);
-        await broadcastFacilitatorTrack(facilitatorStream);
-      }
+      // IMPORTANT: Always broadcast facilitator track first, even if microphone is inactive
+      // This ensures consistent track ordering: track #1 = facilitator, track #2 = background
+      const facilitatorStream = mixer.getFacilitatorStream();
+      console.log('[FacilitatorPanel] Facilitator stream active:', facilitatorStream.active);
+      console.log('[FacilitatorPanel] Microphone is active:', isMicrophoneActive);
+      await broadcastFacilitatorTrack(facilitatorStream);
 
-      // Broadcast background audio track
+      // Broadcast background audio track second
       const backgroundStream = mixer.getBackgroundStream();
       if (backgroundStream) {
         console.log('[FacilitatorPanel] Background stream active:', backgroundStream.active);

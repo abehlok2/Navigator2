@@ -166,6 +166,9 @@ export const SessionPage = () => {
   // Track metadata for identifying track types
   const trackMetadataRef = useRef<Map<string, 'facilitator-mic' | 'background'>>(new Map());
 
+  // Track count per participant to identify track order
+  const participantTrackCountRef = useRef<Map<string, number>>(new Map());
+
   // Auto-rejoin logic: Attempt to rejoin room after refresh if session data is persisted
   const autoRejoinAttemptedRef = useRef(false);
   useEffect(() => {
@@ -380,15 +383,29 @@ export const SessionPage = () => {
         if (track.kind === 'audio') {
           const trackLabel = track.label?.toLowerCase() ?? '';
 
-          // Check track metadata first (most reliable)
+          // Track count to identify track order (first = facilitator, second = background)
+          const currentCount = participantTrackCountRef.current.get(participantId) || 0;
+          const trackNumber = currentCount + 1;
+          participantTrackCountRef.current.set(participantId, trackNumber);
+
+          // Use multiple methods to identify track type:
+          // 1. Check metadata from control channel (if available)
+          // 2. Use track order: first audio track = facilitator mic, second = background
+          // 3. Check contentHint (not preserved but try anyway)
+          // 4. Check track label
+
           const trackType = trackMetadataRef.current.get(track.id);
+          const isSecondTrack = trackNumber === 2;
           const isBackgroundTrack = trackType === 'background' ||
+            isSecondTrack ||
             track.contentHint === 'music' ||
             trackLabel.includes('background') ||
             trackLabel.includes('music');
 
+          console.log(`[SessionPage] Track number from ${participantId}: ${trackNumber}`);
           console.log(`[SessionPage] Track type from metadata: ${trackType || 'unknown'}`);
           console.log(`[SessionPage] Track contentHint: ${track.contentHint || 'none'}`);
+          console.log(`[SessionPage] Is second track: ${isSecondTrack}`);
           console.log(`[SessionPage] Is background track: ${isBackgroundTrack}`);
 
           const stream = streams[0] ?? new MediaStream([track]);
