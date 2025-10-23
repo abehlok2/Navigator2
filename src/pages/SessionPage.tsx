@@ -473,7 +473,45 @@ export const SessionPage = () => {
 
           const stream = streams[0] ?? new MediaStream([track]);
           console.log(`[SessionPage] Using stream from: ${streams[0] ? 'WebRTC streams array' : 'new MediaStream created from track'}`);
-          console.log(`[SessionPage] Final stream active: ${stream.active}, ID: ${stream.id}`);
+          console.log(`[SessionPage] Stream active: ${stream.active}, ID: ${stream.id}`);
+
+          // ⚠️ CRITICAL: Wait for stream to be active
+          if (!stream.active) {
+            console.log('[SessionPage] Stream not active yet, waiting...');
+            await new Promise<void>((resolve) => {
+              if (stream.active) {
+                resolve();
+                return;
+              }
+
+              const checkActive = () => {
+                if (stream.active) {
+                  stream.removeEventListener('addtrack', checkActive);
+                  resolve();
+                }
+              };
+
+              stream.addEventListener('addtrack', checkActive);
+
+              // Poll as backup
+              const interval = setInterval(() => {
+                if (stream.active) {
+                  clearInterval(interval);
+                  stream.removeEventListener('addtrack', checkActive);
+                  resolve();
+                }
+              }, 100);
+
+              setTimeout(() => {
+                clearInterval(interval);
+                stream.removeEventListener('addtrack', checkActive);
+                console.log(`[SessionPage] Stream activation timeout, proceeding (active: ${stream.active})`);
+                resolve();
+              }, 3000);
+            });
+          }
+
+          console.log(`[SessionPage] Stream state after validation - active: ${stream.active}`);
 
           const mixer = audioMixerRef.current;
 
@@ -496,30 +534,26 @@ export const SessionPage = () => {
             );
 
             if (mixer instanceof ExplorerAudioMixer) {
+              // ⚠️ NOW PROPERLY AWAIT THE ASYNC METHODS
               if (isBackgroundTrack) {
                 console.log('[SessionPage] Calling mixer.connectBackgroundStream()');
-                mixer.connectBackgroundStream(stream);
+                await mixer.connectBackgroundStream(stream);
               } else {
-                // Explorer mixer connects facilitator stream
                 console.log('[SessionPage] Calling mixer.connectFacilitatorStream()');
-                mixer.connectFacilitatorStream(stream);
+                await mixer.connectFacilitatorStream(stream);
               }
-              // Resume audio context to ensure audio plays (browser autoplay policy)
-              console.log('[SessionPage] About to resume AudioContext, waiting for completion...');
-              await mixer.resumeAudioContext();
-              console.log('[SessionPage] AudioContext resume completed');
+
+              console.log('[SessionPage] Audio connection complete, verifying AudioContext state');
+              console.log(`[SessionPage] AudioContext state: ${mixer['audioContext'].state}`);
             } else if (mixer instanceof ListenerAudioMixer) {
               // Listener mixer adds facilitator/background as audio sources
               console.log('[SessionPage] Calling mixer.addAudioSource()');
-              mixer.addAudioSource(
+              await mixer.addAudioSource(
                 participantId,
                 stream,
                 isBackgroundTrack ? 'Background' : 'Facilitator',
               );
-              // Resume audio context to ensure audio plays (browser autoplay policy)
-              console.log('[SessionPage] About to resume AudioContext, waiting for completion...');
-              await mixer.resumeAudioContext();
-              console.log('[SessionPage] AudioContext resume completed');
+              console.log('[SessionPage] Audio connection complete, verifying AudioContext state');
             }
           }
 

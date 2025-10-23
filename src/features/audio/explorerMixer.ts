@@ -50,18 +50,9 @@ export class ExplorerAudioMixer {
     this.masterGain.connect(this.audioContext.destination);
   }
 
-  connectFacilitatorStream(stream: MediaStream): void {
+  async connectFacilitatorStream(stream: MediaStream): Promise<void> {
     console.log('[ExplorerAudioMixer] Connecting facilitator stream');
     console.log(`[ExplorerAudioMixer] Stream active: ${stream.active}, track count: ${stream.getAudioTracks().length}`);
-
-    // Log track details
-    stream.getAudioTracks().forEach((track, index) => {
-      console.log(`[ExplorerAudioMixer] Track ${index}: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
-    });
-
-    if (this.facilitatorSource) {
-      this.facilitatorSource.disconnect();
-    }
 
     // Verify stream has active audio tracks
     const audioTracks = stream.getAudioTracks();
@@ -70,6 +61,61 @@ export class ExplorerAudioMixer {
       return;
     }
 
+    const track = audioTracks[0];
+    console.log(`[ExplorerAudioMixer] Track: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+
+    // ⚠️ CRITICAL: Wait for track to be ready
+    if (track.readyState !== 'live') {
+      console.log('[ExplorerAudioMixer] Track not live yet, waiting...');
+      await new Promise<void>((resolve) => {
+        if (track.readyState === 'live') {
+          resolve();
+          return;
+        }
+
+        const checkReady = () => {
+          if (track.readyState === 'live') {
+            track.removeEventListener('unmute', checkReady);
+            resolve();
+          }
+        };
+
+        track.addEventListener('unmute', checkReady);
+
+        // Also check periodically in case unmute event is missed
+        const interval = setInterval(() => {
+          if (track.readyState === 'live') {
+            clearInterval(interval);
+            track.removeEventListener('unmute', checkReady);
+            resolve();
+          }
+        }, 100);
+
+        // Timeout after 5 seconds
+        setTimeout(() => {
+          clearInterval(interval);
+          track.removeEventListener('unmute', checkReady);
+          console.warn('[ExplorerAudioMixer] Track readiness timeout, proceeding anyway');
+          resolve();
+        }, 5000);
+      });
+    }
+
+    console.log(`[ExplorerAudioMixer] Track is now ready: readyState=${track.readyState}, muted=${track.muted}`);
+
+    // Disconnect old source if exists
+    if (this.facilitatorSource) {
+      try {
+        this.facilitatorSource.disconnect();
+      } catch (e) {
+        // Ignore errors from disconnecting already-disconnected nodes
+      }
+    }
+
+    // ⚠️ CRITICAL: Ensure AudioContext is running BEFORE creating the source
+    await this.resumeAudioContext();
+
+    // Now create the source - track is guaranteed to be ready
     this.facilitatorSource = this.audioContext.createMediaStreamSource(stream);
     this.facilitatorSource.connect(this.facilitatorGain);
 
@@ -77,20 +123,11 @@ export class ExplorerAudioMixer {
     console.log(`[ExplorerAudioMixer] Facilitator gain value: ${this.facilitatorGain.gain.value}`);
     console.log(`[ExplorerAudioMixer] Master gain value: ${this.masterGain.gain.value}`);
     console.log('[ExplorerAudioMixer] Successfully connected facilitator stream');
-
-    // Attempt to resume audio context immediately
-    void this.resumeAudioContext();
   }
 
-  connectBackgroundStream(stream: MediaStream): void {
+  async connectBackgroundStream(stream: MediaStream): Promise<void> {
     console.log('[ExplorerAudioMixer] Connecting background stream');
-    console.log(
-      `[ExplorerAudioMixer] Stream active: ${stream.active}, track count: ${stream.getAudioTracks().length}`,
-    );
-
-    if (this.backgroundSource) {
-      this.backgroundSource.disconnect();
-    }
+    console.log(`[ExplorerAudioMixer] Stream active: ${stream.active}, track count: ${stream.getAudioTracks().length}`);
 
     const audioTracks = stream.getAudioTracks();
     if (audioTracks.length === 0) {
@@ -98,14 +135,60 @@ export class ExplorerAudioMixer {
       return;
     }
 
+    const track = audioTracks[0];
+    console.log(`[ExplorerAudioMixer] Background track: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+
+    // ⚠️ CRITICAL: Wait for track to be ready
+    if (track.readyState !== 'live') {
+      console.log('[ExplorerAudioMixer] Background track not live yet, waiting...');
+      await new Promise<void>((resolve) => {
+        if (track.readyState === 'live') {
+          resolve();
+          return;
+        }
+
+        const checkReady = () => {
+          if (track.readyState === 'live') {
+            track.removeEventListener('unmute', checkReady);
+            resolve();
+          }
+        };
+
+        track.addEventListener('unmute', checkReady);
+
+        const interval = setInterval(() => {
+          if (track.readyState === 'live') {
+            clearInterval(interval);
+            track.removeEventListener('unmute', checkReady);
+            resolve();
+          }
+        }, 100);
+
+        setTimeout(() => {
+          clearInterval(interval);
+          track.removeEventListener('unmute', checkReady);
+          console.warn('[ExplorerAudioMixer] Background track readiness timeout, proceeding anyway');
+          resolve();
+        }, 5000);
+      });
+    }
+
+    console.log(`[ExplorerAudioMixer] Background track is now ready: readyState=${track.readyState}, muted=${track.muted}`);
+
+    // Disconnect old source if exists
+    if (this.backgroundSource) {
+      try {
+        this.backgroundSource.disconnect();
+      } catch (e) {
+        // Ignore errors
+      }
+    }
+
+    // ⚠️ CRITICAL: Ensure AudioContext is running BEFORE creating the source
+    await this.resumeAudioContext();
+
     this.backgroundSource = this.audioContext.createMediaStreamSource(stream);
     this.backgroundSource.connect(this.backgroundGain);
-
-    audioTracks.forEach((track, index) => {
-      console.log(
-        `[ExplorerAudioMixer] Background track ${index}: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`,
-      );
-    });
 
     console.log('[ExplorerAudioMixer] Background stream connected successfully');
   }
