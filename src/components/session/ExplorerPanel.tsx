@@ -24,6 +24,25 @@ const containerStyles: CSSProperties = {
   height: '100%',
 };
 
+const contentLayoutStyles: CSSProperties = {
+  display: 'grid',
+  gap: '1.5rem',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+  alignItems: 'start',
+};
+
+const mainContentStyles: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '1rem',
+};
+
+const sidebarStyles: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '1.5rem',
+};
+
 const sectionStyles: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
@@ -458,69 +477,75 @@ export const ExplorerPanel = ({ controlChannel, peerManager, audioMixer }: Explo
       {/* Session Header */}
       <SessionHeader {...sessionOverview} />
 
-      {/* Voice Channel Section */}
-      <Card title="Voice Channel">
-        <div style={cardContentStyles}>
-          {/* Microphone Control */}
-          <section style={sectionStyles}>
-            <h3 style={sectionTitleStyles}>Microphone</h3>
-            <MicrophoneControl
-              onToggle={handleMicrophoneToggle}
-              isActive={isMicActive}
-            />
-            {isMicActive && (
-              <VolumeControl
-                label="My Microphone Volume"
-                volume={explorerMicVolume}
-                onVolumeChange={handleExplorerMicVolumeChange}
-                onMute={handleExplorerMicMute}
-                isMuted={explorerMicMuted}
-              />
-            )}
-          </section>
+      <div style={contentLayoutStyles}>
+        <div style={mainContentStyles}>
+          {/* Voice Channel Section */}
+          <Card title="Voice Channel">
+            <div style={cardContentStyles}>
+              {/* Microphone Control */}
+              <section style={sectionStyles}>
+                <h3 style={sectionTitleStyles}>Microphone</h3>
+                <MicrophoneControl
+                  onToggle={handleMicrophoneToggle}
+                  isActive={isMicActive}
+                />
+                {isMicActive && (
+                  <VolumeControl
+                    label="My Microphone Volume"
+                    volume={explorerMicVolume}
+                    onVolumeChange={handleExplorerMicVolumeChange}
+                    onMute={handleExplorerMicMute}
+                    isMuted={explorerMicMuted}
+                  />
+                )}
+              </section>
 
-          {/* Incoming Audio Level (Facilitator) */}
-          <section style={sectionStyles}>
-            <h3 style={sectionTitleStyles}>Incoming Audio</h3>
-            <AudioLevelDisplay
-              label="Facilitator"
-              level={facilitatorAudioLevel}
-              isActive={connectionStatus === 'connected'}
-            />
-            <VolumeControl
-              label="Facilitator Voice Volume"
-              volume={facilitatorVolume}
-              onVolumeChange={handleFacilitatorVolumeChange}
-              onMute={handleFacilitatorMute}
-              isMuted={facilitatorMuted}
-            />
-          </section>
+              {/* Incoming Audio Level (Facilitator) */}
+              <section style={sectionStyles}>
+                <h3 style={sectionTitleStyles}>Incoming Audio</h3>
+                <AudioLevelDisplay
+                  label="Facilitator"
+                  level={facilitatorAudioLevel}
+                  isActive={connectionStatus === 'connected'}
+                />
+                <VolumeControl
+                  label="Facilitator Voice Volume"
+                  volume={facilitatorVolume}
+                  onVolumeChange={handleFacilitatorVolumeChange}
+                  onMute={handleFacilitatorMute}
+                  isMuted={facilitatorMuted}
+                />
+              </section>
 
-          {/* Background Audio Status */}
-          <section style={sectionStyles}>
-            <h3 style={sectionTitleStyles}>Background Audio</h3>
-            <BackgroundAudioStatus
-              isPlaying={backgroundAudioState.isPlaying}
-              fileName={backgroundAudioState.fileName}
-              currentTime={backgroundAudioState.currentTime}
-              duration={backgroundAudioState.duration}
-            />
-            <VolumeControl
-              label="Background Audio Volume"
-              volume={backgroundVolume}
-              onVolumeChange={handleBackgroundVolumeChange}
-              onMute={handleBackgroundMute}
-              isMuted={backgroundMuted}
-            />
-          </section>
+              {/* Background Audio Status */}
+              <section style={sectionStyles}>
+                <h3 style={sectionTitleStyles}>Background Audio</h3>
+                <BackgroundAudioStatus
+                  isPlaying={backgroundAudioState.isPlaying}
+                  fileName={backgroundAudioState.fileName}
+                  currentTime={backgroundAudioState.currentTime}
+                  duration={backgroundAudioState.duration}
+                />
+                <VolumeControl
+                  label="Background Audio Volume"
+                  volume={backgroundVolume}
+                  onVolumeChange={handleBackgroundVolumeChange}
+                  onMute={handleBackgroundMute}
+                  isMuted={backgroundMuted}
+                />
+              </section>
+            </div>
+          </Card>
         </div>
-      </Card>
 
-      {/* Session Notes */}
-      {roomId && <SessionNotes roomId={roomId} />}
+        <div style={sidebarStyles}>
+          {/* Session Notes */}
+          {roomId && <SessionNotes roomId={roomId} />}
 
-      {/* Participant List */}
-      <ParticipantList />
+          {/* Participant List */}
+          <ParticipantList />
+        </div>
+      </div>
     </div>
   );
 };

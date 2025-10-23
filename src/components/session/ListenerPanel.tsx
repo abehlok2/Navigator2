@@ -14,6 +14,25 @@ const containerStyles: CSSProperties = {
   height: '100%',
 };
 
+const contentLayoutStyles: CSSProperties = {
+  display: 'grid',
+  gap: '1.5rem',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+  alignItems: 'start',
+};
+
+const mainContentStyles: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '1rem',
+};
+
+const sidebarStyles: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '1.5rem',
+};
+
 const statusIndicatorStyles: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
@@ -95,59 +114,65 @@ export const ListenerPanel = () => {
       {/* Session Header */}
       <SessionHeader {...sessionOverview} />
 
-      {/* Listen-only Status Indicator */}
-      <div style={statusIndicatorStyles}>
-        <div style={statusDotStyles} />
-        <span style={statusTextStyles}>Connected</span>
-        <span style={statusBadgeStyles}>Listen-only</span>
-      </div>
+      <div style={contentLayoutStyles}>
+        <div style={mainContentStyles}>
+          {/* Listen-only Status Indicator */}
+          <div style={statusIndicatorStyles}>
+            <div style={statusDotStyles} />
+            <span style={statusTextStyles}>Connected</span>
+            <span style={statusBadgeStyles}>Listen-only</span>
+          </div>
 
-      {/* Audio Feed Section */}
-      <Card title="Audio Feed">
-        <div style={cardContentStyles}>
-          {/* Master Volume Control */}
-          <section style={sectionStyles}>
-            <h3 style={sectionTitleStyles}>Master Volume</h3>
-            <VolumeControl
-              label="Master"
-              volume={masterVolume}
-              onVolumeChange={setMasterVolume}
-              onMute={setMasterMuted}
-              isMuted={masterMuted}
-            />
-          </section>
+          {/* Audio Feed Section */}
+          <Card title="Audio Feed">
+            <div style={cardContentStyles}>
+              {/* Master Volume Control */}
+              <section style={sectionStyles}>
+                <h3 style={sectionTitleStyles}>Master Volume</h3>
+                <VolumeControl
+                  label="Master"
+                  volume={masterVolume}
+                  onVolumeChange={setMasterVolume}
+                  onMute={setMasterMuted}
+                  isMuted={masterMuted}
+                />
+              </section>
 
-          {/* Background Audio Volume Control */}
-          <section style={sectionStyles}>
-            <h3 style={sectionTitleStyles}>Background Audio</h3>
-            <VolumeControl
-              label="Background"
-              volume={backgroundVolume}
-              onVolumeChange={setBackgroundVolume}
-              onMute={setBackgroundMuted}
-              isMuted={backgroundMuted}
-            />
-          </section>
+              {/* Background Audio Volume Control */}
+              <section style={sectionStyles}>
+                <h3 style={sectionTitleStyles}>Background Audio</h3>
+                <VolumeControl
+                  label="Background"
+                  volume={backgroundVolume}
+                  onVolumeChange={setBackgroundVolume}
+                  onMute={setBackgroundMuted}
+                  isMuted={backgroundMuted}
+                />
+              </section>
 
-          {/* Voices Volume Control */}
-          <section style={sectionStyles}>
-            <h3 style={sectionTitleStyles}>Voice Chat</h3>
-            <VolumeControl
-              label="Voices"
-              volume={voicesVolume}
-              onVolumeChange={setVoicesVolume}
-              onMute={setVoicesMuted}
-              isMuted={voicesMuted}
-            />
-          </section>
+              {/* Voices Volume Control */}
+              <section style={sectionStyles}>
+                <h3 style={sectionTitleStyles}>Voice Chat</h3>
+                <VolumeControl
+                  label="Voices"
+                  volume={voicesVolume}
+                  onVolumeChange={setVoicesVolume}
+                  onMute={setVoicesMuted}
+                  isMuted={voicesMuted}
+                />
+              </section>
+            </div>
+          </Card>
         </div>
-      </Card>
 
-      {/* Session Notes */}
-      {roomId && <SessionNotes roomId={roomId} />}
+        <div style={sidebarStyles}>
+          {/* Session Notes */}
+          {roomId && <SessionNotes roomId={roomId} />}
 
-      {/* Participant List */}
-      <ParticipantList />
+          {/* Participant List */}
+          <ParticipantList />
+        </div>
+      </div>
     </div>
   );
 };
