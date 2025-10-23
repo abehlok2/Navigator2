@@ -332,6 +332,7 @@ export const HomePage = () => {
               }}
               placeholder="Enter the room password"
               disabled={isJoiningRoom}
+              autoComplete="new-password"
             />
             {joinError ? (
               <p role="alert" style={errorTextStyles}>
