@@ -162,6 +162,9 @@ export const SessionPage = () => {
 
   // Audio mixers for receiving/mixing audio
   const audioMixerRef = useRef<ExplorerAudioMixer | ListenerAudioMixer | FacilitatorAudioMixer | null>(null);
+  const [audioMixer, setAudioMixer] = useState<
+    ExplorerAudioMixer | ListenerAudioMixer | FacilitatorAudioMixer | null
+  >(null);
 
   // Track metadata for identifying track types
   const trackMetadataRef = useRef<Map<string, 'facilitator-mic' | 'background'>>(new Map());
@@ -262,11 +265,17 @@ export const SessionPage = () => {
       console.log(`[SessionPage] Initializing audio mixer for ${userRole}`);
 
       if (userRole === 'explorer') {
-        audioMixerRef.current = new ExplorerAudioMixer();
+        const mixer = new ExplorerAudioMixer();
+        audioMixerRef.current = mixer;
+        setAudioMixer(mixer);
       } else if (userRole === 'listener') {
-        audioMixerRef.current = new ListenerAudioMixer();
+        const mixer = new ListenerAudioMixer();
+        audioMixerRef.current = mixer;
+        setAudioMixer(mixer);
       } else if (userRole === 'facilitator') {
-        audioMixerRef.current = new FacilitatorAudioMixer();
+        const mixer = new FacilitatorAudioMixer();
+        audioMixerRef.current = mixer;
+        setAudioMixer(mixer);
       }
     }
 
@@ -276,6 +285,7 @@ export const SessionPage = () => {
         console.log('[SessionPage] Cleaning up audio mixer');
         audioMixerRef.current.disconnect();
         audioMixerRef.current = null;
+        setAudioMixer(null);
       }
     };
   }, [userRole]);
@@ -290,7 +300,7 @@ export const SessionPage = () => {
       return;
     }
 
-    if (!audioMixerRef.current) {
+    if (!audioMixer) {
       return;
     }
 
@@ -304,7 +314,7 @@ export const SessionPage = () => {
       }
 
       unlocked = true;
-      void audioMixerRef.current?.resumeAudioContext();
+      void audioMixer.resumeAudioContext();
       removeEventListeners();
     };
 
@@ -320,7 +330,7 @@ export const SessionPage = () => {
     return () => {
       removeEventListeners();
     };
-  }, [userRole]);
+  }, [userRole, audioMixer]);
 
   // Initialize peer connection manager after signaling connects
   useEffect(() => {
@@ -933,8 +943,8 @@ export const SessionPage = () => {
   }, [connectionStatus]);
 
   const rolePanel = useMemo(
-    () => getRolePanel(userRole, controlChannel, peerManagerRef.current, audioMixerRef.current),
-    [userRole, controlChannel],
+    () => getRolePanel(userRole, controlChannel, peerManagerRef.current, audioMixer),
+    [userRole, controlChannel, audioMixer],
   );
 
   return (
