@@ -18,14 +18,9 @@ export class ListenerAudioMixer {
     return `${participantId}::${label}`;
   }
 
-  addAudioSource(participantId: string, stream: MediaStream, label: string): void {
+  async addAudioSource(participantId: string, stream: MediaStream, label: string): Promise<void> {
     console.log(`[ListenerAudioMixer] Adding audio source for ${participantId} (${label})`);
     console.log(`[ListenerAudioMixer] Stream active: ${stream.active}, track count: ${stream.getAudioTracks().length}`);
-
-    // Log track details
-    stream.getAudioTracks().forEach((track, index) => {
-      console.log(`[ListenerAudioMixer] Track ${index}: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
-    });
 
     const sourceKey = this.getSourceKey(participantId, label);
 
@@ -38,6 +33,49 @@ export class ListenerAudioMixer {
       console.error(`[ListenerAudioMixer] No audio tracks in stream for ${participantId}`);
       return;
     }
+
+    const track = audioTracks[0];
+    console.log(`[ListenerAudioMixer] Track: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+
+    // ⚠️ CRITICAL: Wait for track to be ready
+    if (track.readyState !== 'live') {
+      console.log(`[ListenerAudioMixer] Track for ${participantId} not live yet, waiting...`);
+      await new Promise<void>((resolve) => {
+        if (track.readyState === 'live') {
+          resolve();
+          return;
+        }
+
+        const checkReady = () => {
+          if (track.readyState === 'live') {
+            track.removeEventListener('unmute', checkReady);
+            resolve();
+          }
+        };
+
+        track.addEventListener('unmute', checkReady);
+
+        const interval = setInterval(() => {
+          if (track.readyState === 'live') {
+            clearInterval(interval);
+            track.removeEventListener('unmute', checkReady);
+            resolve();
+          }
+        }, 100);
+
+        setTimeout(() => {
+          clearInterval(interval);
+          track.removeEventListener('unmute', checkReady);
+          console.warn(`[ListenerAudioMixer] Track readiness timeout for ${participantId}, proceeding anyway`);
+          resolve();
+        }, 5000);
+      });
+    }
+
+    console.log(`[ListenerAudioMixer] Track is now ready: readyState=${track.readyState}, muted=${track.muted}`);
+
+    // ⚠️ CRITICAL: Ensure AudioContext is running BEFORE creating the source
+    await this.resumeAudioContext();
 
     // Create new source and gain
     const source = this.audioContext.createMediaStreamSource(stream);
@@ -56,9 +94,6 @@ export class ListenerAudioMixer {
     // Store references
     this.sources.set(sourceKey, source);
     this.gains.set(sourceKey, gain);
-
-    // Attempt to resume audio context immediately
-    void this.resumeAudioContext();
   }
 
   removeAudioSource(participantId: string, label?: string): void {
