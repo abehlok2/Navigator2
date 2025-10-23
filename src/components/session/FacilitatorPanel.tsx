@@ -10,6 +10,7 @@ import {
 import { BackgroundPlayer, MicrophoneControl, RecordingControl, VolumeControl } from '../audio';
 import { NextTrackControl } from '../audio/NextTrackControl';
 import { ErrorDisplay } from './ErrorDisplay';
+import { ParticipantList } from './ParticipantList';
 import { SessionHeader } from './SessionHeader';
 import { SessionNotes } from './SessionNotes';
 import { Card } from '../ui';
@@ -1248,6 +1249,7 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
 
         <div style={sidebarLayoutStyles}>
           {roomId ? <SessionNotes roomId={roomId} /> : null}
+          <ParticipantList />
         </div>
       </div>
     </section>

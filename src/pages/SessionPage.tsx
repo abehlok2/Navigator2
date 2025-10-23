@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { ExplorerPanel, FacilitatorPanel, ListenerPanel, ParticipantList } from '../components/session';
+import { ExplorerPanel, FacilitatorPanel, ListenerPanel } from '../components/session';
 import { ErrorDisplay } from '../components/session/ErrorDisplay';
 import { Button, Card } from '../components/ui';
 import { useSessionStore } from '../state/session';
@@ -890,7 +890,6 @@ export const SessionPage = () => {
 
       <section style={contentStyles}>
         <div>{rolePanel}</div>
-        <ParticipantList />
       </section>
     </main>
   );
