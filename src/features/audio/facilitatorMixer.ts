@@ -205,6 +205,15 @@ export class FacilitatorAudioMixer {
     console.log('[FacilitatorAudioMixer] Stream active:', stream.active);
     console.log('[FacilitatorAudioMixer] Stream tracks:', stream.getTracks().length);
 
+    // Ensure all tracks are enabled
+    stream.getTracks().forEach((track, index) => {
+      if (!track.enabled) {
+        console.log(`[FacilitatorAudioMixer] Enabling facilitator track ${index}`);
+        track.enabled = true;
+      }
+      console.log(`[FacilitatorAudioMixer] Facilitator Track ${index}: kind=${track.kind}, enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+    });
+
     return stream;
   }
 
@@ -227,6 +236,15 @@ export class FacilitatorAudioMixer {
     console.log('[FacilitatorAudioMixer] Getting background stream');
     console.log('[FacilitatorAudioMixer] Stream active:', stream.active);
     console.log('[FacilitatorAudioMixer] Stream tracks:', stream.getTracks().length);
+
+    // Ensure all tracks are enabled
+    stream.getTracks().forEach((track, index) => {
+      if (!track.enabled) {
+        console.log(`[FacilitatorAudioMixer] Enabling background track ${index}`);
+        track.enabled = true;
+      }
+      console.log(`[FacilitatorAudioMixer] Background Track ${index}: kind=${track.kind}, enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+    });
 
     return stream;
   }
