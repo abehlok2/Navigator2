@@ -631,14 +631,15 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
 
-      // Broadcast facilitator track if microphone is active
-      if (isMicrophoneActive) {
-        const facilitatorStream = mixer.getFacilitatorStream();
-        console.log('[FacilitatorPanel] Facilitator stream active:', facilitatorStream.active);
-        await broadcastFacilitatorTrack(facilitatorStream);
-      }
+      // ALWAYS broadcast facilitator track first (Track #1), even if mic is inactive
+      // This ensures consistent track ordering for identification
+      const facilitatorStream = mixer.getFacilitatorStream();
+      console.log('[FacilitatorPanel] Facilitator stream active:', facilitatorStream.active);
+      console.log('[FacilitatorPanel] Microphone active:', isMicrophoneActive);
+      console.log('[FacilitatorPanel] Broadcasting facilitator track (Track #1)...');
+      await broadcastFacilitatorTrack(facilitatorStream);
 
-      // Broadcast background audio track
+      // ALWAYS broadcast background audio track second (Track #2)
       const backgroundStream = mixer.getBackgroundStream();
       if (backgroundStream) {
         console.log('[FacilitatorPanel] Background stream active:', backgroundStream.active);
@@ -648,7 +649,7 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
           console.log(`[FacilitatorPanel] Background track ${index}: kind=${track.kind}, enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}, contentHint=${track.contentHint}`);
         });
 
-        console.log('[FacilitatorPanel] Broadcasting background track to peers...');
+        console.log('[FacilitatorPanel] Broadcasting background track (Track #2) to peers...');
         await broadcastBackgroundTrack(backgroundStream);
       } else {
         console.warn('[FacilitatorPanel] No background stream available');
@@ -1069,6 +1070,32 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
     playbackState,
     sendControlMessage,
   ]);
+
+  // Broadcast tracks to new participants who join mid-session
+  useEffect(() => {
+    if (!mixer || !peerManager || playbackState !== 'playing') {
+      return;
+    }
+
+    // When a new participant joins and we're already playing, broadcast tracks to them
+    const timeoutId = setTimeout(async () => {
+      console.log('[FacilitatorPanel] Broadcasting tracks to all participants (participant list changed)');
+
+      // Always broadcast facilitator track first (Track #1)
+      const facilitatorStream = mixer.getFacilitatorStream();
+      if (facilitatorStream) {
+        await broadcastFacilitatorTrack(facilitatorStream);
+      }
+
+      // Broadcast background track second (Track #2) if available
+      const backgroundStream = mixer.getBackgroundStream();
+      if (backgroundStream) {
+        await broadcastBackgroundTrack(backgroundStream);
+      }
+    }, 500); // Small delay to let peer connections stabilize
+
+    return () => clearTimeout(timeoutId);
+  }, [participants.length, mixer, peerManager, playbackState, broadcastFacilitatorTrack, broadcastBackgroundTrack]);
 
   // Handle latency ping messages and respond with pong
   useEffect(() => {

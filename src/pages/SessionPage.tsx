@@ -166,6 +166,10 @@ export const SessionPage = () => {
   // Track metadata for identifying track types
   const trackMetadataRef = useRef<Map<string, 'facilitator-mic' | 'background'>>(new Map());
 
+  // Track order counter for identifying tracks by order of receipt
+  // Track #1 from facilitator = Facilitator mic, Track #2 = Background audio
+  const participantTrackCountRef = useRef<Map<string, number>>(new Map());
+
   // Auto-rejoin logic: Attempt to rejoin room after refresh if session data is persisted
   const autoRejoinAttemptedRef = useRef(false);
   useEffect(() => {
@@ -343,6 +347,13 @@ export const SessionPage = () => {
       manager.on('connectionStateChanged', ({ participantId, state, connection }) => {
         console.log(`[SessionPage] Peer connection state changed for ${participantId}: ${state}`);
 
+        // Reset track count on connection state changes (closed, failed, disconnected)
+        // This ensures proper track identification when reconnecting
+        if (state === 'closed' || state === 'failed' || state === 'disconnected') {
+          participantTrackCountRef.current.delete(participantId);
+          console.log(`[SessionPage] Reset track count for ${participantId} due to connection state: ${state}`);
+        }
+
         // Handle connection failures
         if (state === 'failed') {
           console.error(`[SessionPage] Connection failed for ${participantId}`);
@@ -380,15 +391,74 @@ export const SessionPage = () => {
         if (track.kind === 'audio') {
           const trackLabel = track.label?.toLowerCase() ?? '';
 
-          // Check track metadata first (most reliable)
+          // Increment track count for this participant to determine track order
+          const currentTrackCount = participantTrackCountRef.current.get(participantId) || 0;
+          const trackNumber = currentTrackCount + 1;
+          participantTrackCountRef.current.set(participantId, trackNumber);
+
+          console.log(`[SessionPage] Track number for ${participantId}: ${trackNumber}`);
+
+          // Identify track type using multiple methods (in order of reliability):
+          // 1. Track order (most reliable) - Track #1 = Facilitator mic, Track #2 = Background
+          // 2. Track metadata from control channel
+          // 3. contentHint attribute
+          // 4. Track label
+
+          let isBackgroundTrack = false;
+          let identificationMethod = 'unknown';
+
+          // Method 1: Track order (primary method)
+          if (userRole !== 'facilitator') {
+            // For non-facilitators receiving from facilitator:
+            // Track #1 = Facilitator mic, Track #2 = Background audio
+            if (trackNumber === 1) {
+              isBackgroundTrack = false;
+              identificationMethod = 'track-order-1-facilitator';
+            } else if (trackNumber === 2) {
+              isBackgroundTrack = true;
+              identificationMethod = 'track-order-2-background';
+            }
+          }
+
+          // Method 2: Check track metadata (fallback/validation)
           const trackType = trackMetadataRef.current.get(track.id);
-          const isBackgroundTrack = trackType === 'background' ||
-            track.contentHint === 'music' ||
-            trackLabel.includes('background') ||
-            trackLabel.includes('music');
+          if (trackType) {
+            const metadataIsBackground = trackType === 'background';
+            if (identificationMethod !== 'unknown' && isBackgroundTrack !== metadataIsBackground) {
+              console.warn(`[SessionPage] Track identification mismatch! Order says ${isBackgroundTrack ? 'background' : 'facilitator'}, metadata says ${trackType}`);
+            }
+            // Trust metadata if track order identification failed
+            if (identificationMethod === 'unknown') {
+              isBackgroundTrack = metadataIsBackground;
+              identificationMethod = 'metadata';
+            }
+          }
+
+          // Method 3: Check contentHint (fallback)
+          if (identificationMethod === 'unknown' && track.contentHint) {
+            if (track.contentHint === 'music') {
+              isBackgroundTrack = true;
+              identificationMethod = 'contentHint';
+            } else if (track.contentHint === 'speech') {
+              isBackgroundTrack = false;
+              identificationMethod = 'contentHint';
+            }
+          }
+
+          // Method 4: Check track label (last resort)
+          if (identificationMethod === 'unknown') {
+            if (trackLabel.includes('background') || trackLabel.includes('music')) {
+              isBackgroundTrack = true;
+              identificationMethod = 'label';
+            } else if (trackLabel.includes('facilitator') || trackLabel.includes('mic')) {
+              isBackgroundTrack = false;
+              identificationMethod = 'label';
+            }
+          }
 
           console.log(`[SessionPage] Track type from metadata: ${trackType || 'unknown'}`);
           console.log(`[SessionPage] Track contentHint: ${track.contentHint || 'none'}`);
+          console.log(`[SessionPage] Track identification method: ${identificationMethod}`);
           console.log(`[SessionPage] Is background track: ${isBackgroundTrack}`);
 
           const stream = streams[0] ?? new MediaStream([track]);
@@ -575,6 +645,10 @@ export const SessionPage = () => {
         console.log(`[SessionPage] Disconnecting explorer ${participantId} from facilitator mixer`);
         audioMixerRef.current.disconnectExplorerMicrophone(participantId);
       }
+
+      // Reset track count for this participant
+      participantTrackCountRef.current.delete(participantId);
+      console.log(`[SessionPage] Reset track count for ${participantId}`);
 
       // Remove peer connection
       if (peerManagerRef.current) {
