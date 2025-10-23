@@ -15,7 +15,8 @@ export type AudioControlMessageType =
   | 'audio:next-track'
   | 'audio:crossfade-start'
   | 'audio:facilitator-volume'
-  | 'audio:explorer-volume';
+  | 'audio:explorer-volume'
+  | 'audio:track-metadata';
 
 /**
  * Recording control message types
@@ -106,6 +107,12 @@ export interface AudioExplorerVolumeMessage extends BaseControlMessage<'audio:ex
   volume: number; // 0-1
 }
 
+export interface AudioTrackMetadataMessage extends BaseControlMessage<'audio:track-metadata'> {
+  trackId: string;
+  trackType: 'facilitator-mic' | 'background';
+  streamId: string;
+}
+
 /**
  * Recording control messages
  */
@@ -157,6 +164,7 @@ export type ControlMessage =
   | AudioCrossfadeStartMessage
   | AudioFacilitatorVolumeMessage
   | AudioExplorerVolumeMessage
+  | AudioTrackMetadataMessage
   | RecordingStartMessage
   | RecordingStopMessage
   | ChannelOpenMessage

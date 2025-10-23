@@ -163,6 +163,9 @@ export const SessionPage = () => {
   // Audio mixers for receiving/mixing audio
   const audioMixerRef = useRef<ExplorerAudioMixer | ListenerAudioMixer | FacilitatorAudioMixer | null>(null);
 
+  // Track metadata for identifying track types
+  const trackMetadataRef = useRef<Map<string, 'facilitator-mic' | 'background'>>(new Map());
+
   // Auto-rejoin logic: Attempt to rejoin room after refresh if session data is persisted
   const autoRejoinAttemptedRef = useRef(false);
   useEffect(() => {
@@ -376,10 +379,17 @@ export const SessionPage = () => {
         // Handle audio tracks
         if (track.kind === 'audio') {
           const trackLabel = track.label?.toLowerCase() ?? '';
-          const isBackgroundTrack =
+
+          // Check track metadata first (most reliable)
+          const trackType = trackMetadataRef.current.get(track.id);
+          const isBackgroundTrack = trackType === 'background' ||
             track.contentHint === 'music' ||
             trackLabel.includes('background') ||
             trackLabel.includes('music');
+
+          console.log(`[SessionPage] Track type from metadata: ${trackType || 'unknown'}`);
+          console.log(`[SessionPage] Track contentHint: ${track.contentHint || 'none'}`);
+          console.log(`[SessionPage] Is background track: ${isBackgroundTrack}`);
 
           const stream = streams[0] ?? new MediaStream([track]);
           const mixer = audioMixerRef.current;
@@ -717,6 +727,25 @@ export const SessionPage = () => {
     controlChannel,
     userId,
   ]);
+
+  // Listen for track metadata messages to identify track types
+  useEffect(() => {
+    const controlCh = controlChannelRef.current;
+    if (!controlCh || userRole === 'facilitator') {
+      return;
+    }
+
+    const handleTrackMetadata = (message: import('../types/control-messages').AudioTrackMetadataMessage) => {
+      console.log(`[SessionPage] Received track metadata: trackId=${message.trackId}, type=${message.trackType}, streamId=${message.streamId}`);
+      trackMetadataRef.current.set(message.trackId, message.trackType);
+    };
+
+    controlCh.on('audio:track-metadata', handleTrackMetadata);
+
+    return () => {
+      controlCh.off('audio:track-metadata', handleTrackMetadata);
+    };
+  }, [userRole]);
 
   const handleLeaveRoom = useCallback(() => {
     try {
