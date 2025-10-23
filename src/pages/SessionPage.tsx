@@ -366,7 +366,7 @@ export const SessionPage = () => {
       });
 
       // Listen for remote tracks
-      manager.on('track', ({ participantId, track, streams }) => {
+      manager.on('track', async ({ participantId, track, streams }) => {
         console.log(`[SessionPage] ========== TRACK RECEIVED ==========`);
         console.log(`[SessionPage] Participant: ${participantId}`);
         console.log(`[SessionPage] Track kind: ${track.kind}`);
@@ -462,6 +462,9 @@ export const SessionPage = () => {
           console.log(`[SessionPage] Is background track: ${isBackgroundTrack}`);
 
           const stream = streams[0] ?? new MediaStream([track]);
+          console.log(`[SessionPage] Using stream from: ${streams[0] ? 'WebRTC streams array' : 'new MediaStream created from track'}`);
+          console.log(`[SessionPage] Final stream active: ${stream.active}, ID: ${stream.id}`);
+
           const mixer = audioMixerRef.current;
 
           if (!mixer) {
@@ -492,8 +495,9 @@ export const SessionPage = () => {
                 mixer.connectFacilitatorStream(stream);
               }
               // Resume audio context to ensure audio plays (browser autoplay policy)
-              console.log('[SessionPage] Calling mixer.resumeAudioContext()');
-              void mixer.resumeAudioContext();
+              console.log('[SessionPage] About to resume AudioContext, waiting for completion...');
+              await mixer.resumeAudioContext();
+              console.log('[SessionPage] AudioContext resume completed');
             } else if (mixer instanceof ListenerAudioMixer) {
               // Listener mixer adds facilitator/background as audio sources
               console.log('[SessionPage] Calling mixer.addAudioSource()');
@@ -503,8 +507,9 @@ export const SessionPage = () => {
                 isBackgroundTrack ? 'Background' : 'Facilitator',
               );
               // Resume audio context to ensure audio plays (browser autoplay policy)
-              console.log('[SessionPage] Calling mixer.resumeAudioContext()');
-              void mixer.resumeAudioContext();
+              console.log('[SessionPage] About to resume AudioContext, waiting for completion...');
+              await mixer.resumeAudioContext();
+              console.log('[SessionPage] AudioContext resume completed');
             }
           }
 
