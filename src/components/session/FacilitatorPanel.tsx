@@ -138,6 +138,16 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
 
       console.log('[FacilitatorPanel] Broadcasting facilitator track to peers...');
 
+      // Send track metadata before broadcasting
+      const track = facilitatorStream.getAudioTracks()[0];
+      if (track && controlChannel) {
+        controlChannel.send('audio:track-metadata', {
+          trackId: track.id,
+          trackType: 'facilitator-mic',
+          streamId: facilitatorStream.id,
+        });
+      }
+
       // Clean up senders for participants that are no longer connected
       for (const [participantId, sender] of senders.entries()) {
         if (!participantIds.includes(participantId)) {
@@ -182,7 +192,7 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
         }
       }
     },
-    [peerManager],
+    [peerManager, controlChannel],
   );
 
   // Broadcast background audio track to all peer connections
@@ -197,6 +207,16 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
       const senders = backgroundSendersRef.current;
 
       console.log('[FacilitatorPanel] Broadcasting background track to peers...');
+
+      // Send track metadata before broadcasting
+      const track = backgroundStream.getAudioTracks()[0];
+      if (track && controlChannel) {
+        controlChannel.send('audio:track-metadata', {
+          trackId: track.id,
+          trackType: 'background',
+          streamId: backgroundStream.id,
+        });
+      }
 
       // Clean up senders for participants that are no longer connected
       for (const [participantId, sender] of senders.entries()) {
@@ -242,7 +262,7 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
         }
       }
     },
-    [peerManager],
+    [peerManager, controlChannel],
   );
 
   // Remove background audio tracks from all peer connections
