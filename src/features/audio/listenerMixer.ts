@@ -37,48 +37,10 @@ export class ListenerAudioMixer {
     const track = audioTracks[0];
     console.log(`[ListenerAudioMixer] Track: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
 
-    // ⚠️ CRITICAL: Ensure track is enabled (not muted at MediaStreamTrack level)
+    // Just enable the track - that's all you can control
     track.enabled = true;
-    console.log(`[ListenerAudioMixer] Enabled track for ${participantId}: enabled=${track.enabled}`);
 
-    // ⚠️ CRITICAL: Wait for track to be ready
-    if (track.readyState !== 'live') {
-      console.log(`[ListenerAudioMixer] Track for ${participantId} not live yet, waiting...`);
-      await new Promise<void>((resolve) => {
-        if (track.readyState === 'live') {
-          resolve();
-          return;
-        }
-
-        const checkReady = () => {
-          if (track.readyState === 'live') {
-            track.removeEventListener('unmute', checkReady);
-            resolve();
-          }
-        };
-
-        track.addEventListener('unmute', checkReady);
-
-        const interval = setInterval(() => {
-          if (track.readyState === 'live') {
-            clearInterval(interval);
-            track.removeEventListener('unmute', checkReady);
-            resolve();
-          }
-        }, 100);
-
-        setTimeout(() => {
-          clearInterval(interval);
-          track.removeEventListener('unmute', checkReady);
-          console.warn(`[ListenerAudioMixer] Track readiness timeout for ${participantId}, proceeding anyway`);
-          resolve();
-        }, 5000);
-      });
-    }
-
-    console.log(`[ListenerAudioMixer] Track is now ready: readyState=${track.readyState}, muted=${track.muted}`);
-
-    // ⚠️ CRITICAL: Ensure AudioContext is running BEFORE creating the source
+    // Resume AudioContext BEFORE creating the source
     await this.resumeAudioContext();
 
     // Create new source and gain
@@ -92,6 +54,38 @@ export class ListenerAudioMixer {
     // Connect: Source → Gain → Master
     source.connect(gain);
     gain.connect(this.masterGain);
+
+    // Add diagnostic analyzer to verify audio is flowing
+    const analyser = this.audioContext.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    let consecutiveZeros = 0;
+
+    const checkAudio = setInterval(() => {
+      analyser.getByteFrequencyData(dataArray);
+      const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+
+      if (average === 0) {
+        consecutiveZeros++;
+        if (consecutiveZeros >= 3) {
+          console.error(`[ListenerAudioMixer] ⚠️ NO AUDIO DATA for ${participantId} (${label}) for 3+ seconds`, {
+            trackEnabled: track.enabled,
+            trackMuted: track.muted,
+            trackReadyState: track.readyState,
+            audioContextState: this.audioContext.state,
+            gainValue: gain.gain.value,
+          });
+        }
+      } else {
+        consecutiveZeros = 0;
+        console.log(`[ListenerAudioMixer] ✓ Audio flowing from ${participantId} (${label}): ${average.toFixed(1)} dB`);
+      }
+    }, 1000);
+
+    // Stop checking after 30 seconds
+    setTimeout(() => clearInterval(checkAudio), 30000);
 
     console.log(`[ListenerAudioMixer] Successfully connected audio source for ${participantId}`);
 
