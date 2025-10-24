@@ -109,7 +109,7 @@ export interface AudioExplorerVolumeMessage extends BaseControlMessage<'audio:ex
 
 export interface AudioTrackMetadataMessage extends BaseControlMessage<'audio:track-metadata'> {
   trackId: string;
-  trackType: 'facilitator-mic' | 'background';
+  trackType: 'facilitator-mic' | 'background' | 'explorer-mic';
   streamId: string;
 }
 
@@ -187,9 +187,9 @@ export function isControlMessage(value: unknown): value is ControlMessage {
     typeof message.type === 'string' &&
     typeof message.timestamp === 'number' &&
     (message.type.startsWith('audio:') ||
-     message.type.startsWith('recording:') ||
-     message.type.startsWith('channel:') ||
-     message.type.startsWith('latency:'))
+      message.type.startsWith('recording:') ||
+      message.type.startsWith('channel:') ||
+      message.type.startsWith('latency:'))
   );
 }
 
