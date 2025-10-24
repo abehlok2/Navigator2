@@ -746,56 +746,127 @@ export const SessionPage = () => {
 
     // WebRTC signaling handlers
     const handleOffer = async ({ from, description }: SignalingClientEventMap['offer']): Promise<void> => {
-      console.log(`[SessionPage] Received offer from ${from}`);
-
-      if (!peerManagerRef.current) {
-        console.warn('[SessionPage] No peer manager available to handle offer');
-        return;
+  console.log(`[SessionPage] Received offer from ${from}`);
+  if (!peerManagerRef.current) {
+    console.warn('[SessionPage] No peer manager available to handle offer');
+    return;
+  }
+  try {
+    // Create connection if it doesn't exist
+    if (!peerManagerRef.current.hasConnection(from)) {
+      peerManagerRef.current.createConnection(from);
+    }
+    
+    const pc = peerManagerRef.current.getConnection(from);
+    if (!pc) {
+      throw new Error(`Failed to get peer connection for ${from}`);
+    }
+    
+    // Set remote description
+    await peerManagerRef.current.setRemoteDescription(from, description);
+    
+    // ⚠️ CRITICAL: Set transceiver directions based on role
+    const transceivers = pc.getTransceivers();
+    console.log(`[SessionPage] Found ${transceivers.length} transceivers for ${from}`);
+    
+    transceivers.forEach((transceiver, index) => {
+      console.log(`[SessionPage] Transceiver ${index} before answer:`, {
+        mid: transceiver.mid,
+        direction: transceiver.direction,
+        currentDirection: transceiver.currentDirection,
+        kind: transceiver.receiver?.track?.kind,
+      });
+      
+      // For incoming tracks (from facilitator), set to recvonly
+      // These transceivers are created by the offer's m-lines
+      if (transceiver.direction === 'recvonly' || transceiver.direction === 'inactive') {
+        console.log(`[SessionPage] Setting transceiver ${index} to recvonly (incoming track)`);
+        transceiver.direction = 'recvonly';
       }
-
-      try {
-        // Create connection if it doesn't exist
-        if (!peerManagerRef.current.hasConnection(from)) {
-          peerManagerRef.current.createConnection(from);
-        }
-
-        // Set remote description
-        await peerManagerRef.current.setRemoteDescription(from, description);
-
-        // Create and send answer
-        const answer = await peerManagerRef.current.createAnswer(from);
-        signalingClient.sendAnswer(from, answer);
-        console.log(`[SessionPage] Sent answer to ${from}`);
-      } catch (error) {
-        console.error(`[SessionPage] Failed to handle offer from ${from}:`, error);
-        setSessionError({
-          type: 'webrtc-failed',
-          participantId: from,
-          message: `Failed to process offer from participant ${from}`,
-        });
+      // If transceiver already has sendrecv or sendonly, it's for our outgoing track - leave it
+      else if (transceiver.direction === 'sendrecv' || transceiver.direction === 'sendonly') {
+        console.log(`[SessionPage] Transceiver ${index} is for outgoing track, leaving as ${transceiver.direction}`);
       }
-    };
+    });
+    
+    // Create and send answer
+    const answer = await peerManagerRef.current.createAnswer(from);
+    
+    // Log transceivers after answer creation to verify
+    transceivers.forEach((transceiver, index) => {
+      console.log(`[SessionPage] Transceiver ${index} after answer:`, {
+        mid: transceiver.mid,
+        direction: transceiver.direction,
+        currentDirection: transceiver.currentDirection,
+      });
+    });
+    
+    signalingClient.sendAnswer(from, answer);
+    console.log(`[SessionPage] Sent answer to ${from}`);
+  } catch (error) {
+    console.error(`[SessionPage] Failed to handle offer from ${from}:`, error);
+    setSessionError({
+      type: 'webrtc-failed',
+      participantId: from,
+      message: `Failed to process offer from participant ${from}`,
+    });
+  }
+};
 
-    const handleAnswer = async ({ from, description }: SignalingClientEventMap['answer']): Promise<void> => {
-      console.log(`[SessionPage] Received answer from ${from}`);
-
-      if (!peerManagerRef.current) {
-        console.warn('[SessionPage] No peer manager available to handle answer');
-        return;
+const handleAnswer = async ({ from, description }: SignalingClientEventMap['answer']): Promise<void> => {
+  console.log(`[SessionPage] Received answer from ${from}`);
+  if (!peerManagerRef.current) {
+    console.warn('[SessionPage] No peer manager available to handle answer');
+    return;
+  }
+  try {
+    const pc = peerManagerRef.current.getConnection(from);
+    if (!pc) {
+      throw new Error(`No peer connection found for ${from}`);
+    }
+    
+    // Log transceivers before setting answer
+    const transceivers = pc.getTransceivers();
+    console.log(`[SessionPage] Found ${transceivers.length} transceivers before setting answer for ${from}`);
+    transceivers.forEach((transceiver, index) => {
+      console.log(`[SessionPage] Transceiver ${index} before setting answer:`, {
+        mid: transceiver.mid,
+        direction: transceiver.direction,
+        currentDirection: transceiver.currentDirection,
+        sender: transceiver.sender?.track?.kind,
+        senderTrackId: transceiver.sender?.track?.id,
+      });
+    });
+    
+    await peerManagerRef.current.setRemoteDescription(from, description);
+    console.log(`[SessionPage] Set remote description (answer) for ${from}`);
+    
+    // Log transceivers after setting answer to verify negotiation succeeded
+    transceivers.forEach((transceiver, index) => {
+      console.log(`[SessionPage] Transceiver ${index} after setting answer:`, {
+        mid: transceiver.mid,
+        direction: transceiver.direction,
+        currentDirection: transceiver.currentDirection,
+      });
+      
+      // Verify the transceiver is in the correct state
+      if (transceiver.currentDirection === 'inactive') {
+        console.error(`[SessionPage] ⚠️ Transceiver ${index} is INACTIVE after answer - audio will not flow!`);
+      } else if (transceiver.currentDirection === 'sendonly' && transceiver.sender?.track) {
+        console.log(`[SessionPage] ✓ Transceiver ${index} is sendonly - sending track ${transceiver.sender.track.id}`);
+      } else if (transceiver.currentDirection === 'recvonly' && transceiver.receiver?.track) {
+        console.log(`[SessionPage] ✓ Transceiver ${index} is recvonly - receiving track ${transceiver.receiver.track.id}`);
       }
-
-      try {
-        await peerManagerRef.current.setRemoteDescription(from, description);
-        console.log(`[SessionPage] Set remote description (answer) for ${from}`);
-      } catch (error) {
-        console.error(`[SessionPage] Failed to handle answer from ${from}:`, error);
-        setSessionError({
-          type: 'webrtc-failed',
-          participantId: from,
-          message: `Failed to process answer from participant ${from}`,
-        });
-      }
-    };
+    });
+  } catch (error) {
+    console.error(`[SessionPage] Failed to handle answer from ${from}:`, error);
+    setSessionError({
+      type: 'webrtc-failed',
+      participantId: from,
+      message: `Failed to process answer from participant ${from}`,
+    });
+  }
+};
 
     const handleIceCandidate = async ({
       from,
