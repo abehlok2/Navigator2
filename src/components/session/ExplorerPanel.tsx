@@ -137,6 +137,16 @@ export const ExplorerPanel = ({ controlChannel, peerManager, audioMixer }: Explo
         const existingSender = micSenderRef.current;
 
         if (existingSender) {
+          // ⚠️ CRITICAL FIX: Check transceiver direction before replacing
+          const transceiver = facilitatorConnection.getTransceivers().find(t => t.sender === existingSender);
+
+          if (transceiver && transceiver.currentDirection === 'inactive') {
+            console.warn(`[ExplorerPanel] Transceiver for facilitator is inactive, fixing...`);
+            transceiver.direction = 'sendonly';
+            // Transceiver direction change requires renegotiation
+            // This will trigger negotiationneeded event
+          }
+
           // Replace the existing track
           await replaceAudioTrack(existingSender, stream);
           console.log('[ExplorerPanel] Replaced microphone track to facilitator');
