@@ -15,6 +15,8 @@ export class FacilitatorAudioMixer {
   private facilitatorDestination: MediaStreamAudioDestinationNode;
   private backgroundDestination: MediaStreamAudioDestinationNode;
   private isCrossfading: boolean = false;
+  private silentSource: OscillatorNode;
+  private silentGain: GainNode;
 
   constructor() {
     this.audioContext = new AudioContext({ sampleRate: 48000 });
@@ -31,6 +33,18 @@ export class FacilitatorAudioMixer {
     this.backgroundGain.gain.value = 0.7;
     this.nextBackgroundGain.gain.value = 0.0; // Start at 0 for next track
     this.masterGain.gain.value = 1.0;
+
+    // ⚠️ CRITICAL: Create a silent audio source to prevent tracks from being muted
+    // MediaStreamAudioDestinationNode tracks become muted when no audio is flowing
+    // This silent source ensures tracks are always unmuted for recipients
+    this.silentGain = this.audioContext.createGain();
+    this.silentGain.gain.value = 0; // Completely silent
+    this.silentSource = this.audioContext.createOscillator();
+    this.silentSource.frequency.value = 0; // Silent frequency
+    this.silentSource.connect(this.silentGain);
+    this.silentGain.connect(this.facilitatorDestination);
+    this.silentGain.connect(this.backgroundDestination);
+    this.silentSource.start();
 
     // Connect mic and background to their individual destinations
     this.micGain.connect(this.facilitatorDestination);
@@ -403,6 +417,15 @@ export class FacilitatorAudioMixer {
       this.nextBackgroundSource = null;
     }
     this.nextBackgroundAudioElement = null;
+
+    // Cleanup silent source
+    try {
+      this.silentSource.stop();
+      this.silentSource.disconnect();
+      this.silentGain.disconnect();
+    } catch (e) {
+      // Ignore errors if already stopped/disconnected
+    }
 
     void this.audioContext.close();
   }
