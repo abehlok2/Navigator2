@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react';
+import { useCallback, useState, type CSSProperties } from 'react';
 
 import { Card } from '../ui';
 import { SessionHeader } from './SessionHeader';
@@ -6,6 +6,7 @@ import { ParticipantList } from './ParticipantList';
 import { SessionNotes } from './SessionNotes';
 import { VolumeControl } from '../audio/VolumeControl';
 import { useSessionStore } from '../../state/session';
+import type { ListenerAudioMixer } from '../../features/audio/listenerMixer';
 
 const containerStyles: CSSProperties = {
   display: 'flex',
@@ -87,7 +88,11 @@ const sectionTitleStyles: CSSProperties = {
   borderBottom: '1px solid var(--border, #3a3a3a)',
 };
 
-export const ListenerPanel = () => {
+export interface ListenerPanelProps {
+  audioMixer: ListenerAudioMixer | null;
+}
+
+export const ListenerPanel = ({ audioMixer }: ListenerPanelProps) => {
   const roomId = useSessionStore((state) => state.roomId);
   const participants = useSessionStore((state) => state.participants);
   const connectionStatus = useSessionStore((state) => state.connectionStatus);
@@ -96,11 +101,27 @@ export const ListenerPanel = () => {
   const [masterVolume, setMasterVolume] = useState(80);
   const [masterMuted, setMasterMuted] = useState(false);
 
-  const [backgroundVolume, setBackgroundVolume] = useState(60);
-  const [backgroundMuted, setBackgroundMuted] = useState(false);
+  // Note: For listeners, we might want separate controls for different sources
+  // but for now, master volume controls everything
 
-  const [voicesVolume, setVoicesVolume] = useState(90);
-  const [voicesMuted, setVoicesMuted] = useState(false);
+  // Master volume handler
+  const handleMasterVolumeChange = useCallback((volume: number) => {
+    setMasterVolume(volume);
+    const normalizedVolume = masterMuted ? 0 : volume / 100;
+
+    if (audioMixer) {
+      audioMixer.setMasterVolume(normalizedVolume);
+    }
+  }, [audioMixer, masterMuted]);
+
+  const handleMasterMute = useCallback((muted: boolean) => {
+    setMasterMuted(muted);
+    const normalizedVolume = muted ? 0 : masterVolume / 100;
+
+    if (audioMixer) {
+      audioMixer.setMasterVolume(normalizedVolume);
+    }
+  }, [audioMixer, masterVolume]);
 
   // Get session overview data
   const sessionOverview = {
@@ -129,37 +150,23 @@ export const ListenerPanel = () => {
               {/* Master Volume Control */}
               <section style={sectionStyles}>
                 <h3 style={sectionTitleStyles}>Master Volume</h3>
+                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary, #a0a0a0)', margin: 0 }}>
+                  Control the overall volume of all incoming audio.
+                </p>
                 <VolumeControl
                   label="Master"
                   volume={masterVolume}
-                  onVolumeChange={setMasterVolume}
-                  onMute={setMasterMuted}
+                  onVolumeChange={handleMasterVolumeChange}
+                  onMute={handleMasterMute}
                   isMuted={masterMuted}
                 />
               </section>
 
-              {/* Background Audio Volume Control */}
+              {/* Info about listen-only mode */}
               <section style={sectionStyles}>
-                <h3 style={sectionTitleStyles}>Background Audio</h3>
-                <VolumeControl
-                  label="Background"
-                  volume={backgroundVolume}
-                  onVolumeChange={setBackgroundVolume}
-                  onMute={setBackgroundMuted}
-                  isMuted={backgroundMuted}
-                />
-              </section>
-
-              {/* Voices Volume Control */}
-              <section style={sectionStyles}>
-                <h3 style={sectionTitleStyles}>Voice Chat</h3>
-                <VolumeControl
-                  label="Voices"
-                  volume={voicesVolume}
-                  onVolumeChange={setVoicesVolume}
-                  onMute={setVoicesMuted}
-                  isMuted={voicesMuted}
-                />
+                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary, #a0a0a0)', margin: 0 }}>
+                  You are in listen-only mode. You can hear all participants and background audio but cannot speak.
+                </p>
               </section>
             </div>
           </Card>
