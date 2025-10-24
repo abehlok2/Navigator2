@@ -595,29 +595,42 @@ export const SessionPage = () => {
           console.log('[SessionPage] Skip offer; signalingState:', connection.signalingState);
           return;
         }
-      
-        // Coalesce: only offer if there’s actually something to negotiate:
+
+        // Coalesce: only offer if there's actually something to negotiate:
         //  - at least one sender has a track, OR
-        //  - any transceiver's desired direction differs from its currentDirection
+        //  - any transceiver exists (even without a track), OR
+        //  - data channels exist
         const hasAnyTrack = connection.getSenders().some(s => !!s.track);
+        const hasTransceivers = connection.getTransceivers().length > 0;
+        const hasDataChannels = connection.getSenders().length > 0 || connection.sctp !== null;
         const hasDirChanges = connection.getTransceivers().some(t => {
           // If currentDirection is null (pre-answer), we still allow an offer
           return t.currentDirection == null || (t.direction && t.direction !== t.currentDirection);
-  });
+        });
 
-  if (!hasAnyTrack && !hasDirChanges) {
-    console.log('[SessionPage] Skip offer; no tracks attached and no direction changes pending');
-    return;
-  }
+        console.log('[SessionPage] Negotiation check:', {
+          hasAnyTrack,
+          hasTransceivers,
+          hasDataChannels,
+          hasDirChanges,
+          senders: connection.getSenders().length,
+          transceivers: connection.getTransceivers().length,
+        });
 
-  try {
-    const offer = await manager.createOffer(participantId);
-    signalingClient.sendOffer(participantId, offer);
-    console.log('[SessionPage] Sent offer to', participantId);
-  } catch (e) {
-    console.error('[SessionPage] Failed to create/send offer:', e);
-  }
-});
+        // Allow offer if we have tracks, transceivers, direction changes, or if this is initial negotiation
+        if (!hasAnyTrack && !hasDirChanges && !hasTransceivers) {
+          console.log('[SessionPage] Skip offer; no tracks, transceivers, or direction changes');
+          return;
+        }
+
+        try {
+          const offer = await manager.createOffer(participantId);
+          signalingClient.sendOffer(participantId, offer);
+          console.log('[SessionPage] Sent offer to', participantId);
+        } catch (e) {
+          console.error('[SessionPage] Failed to create/send offer:', e);
+        }
+      });
 
     // Initialize control channel for facilitator role
     // This is outside the peer manager creation block so it can be created
