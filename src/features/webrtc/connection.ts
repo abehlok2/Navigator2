@@ -199,6 +199,8 @@ export function detectConnectionType(
   return new Promise((resolve) => {
     let settled = false;
     let timeoutId: number | null = null;
+    let connectionAttempted = false;
+
     const settle = (result: ConnectionType): void => {
       if (settled) {
         return;
@@ -216,6 +218,18 @@ export function detectConnectionType(
       }
     };
 
+    const startTimeout = (): void => {
+      if (timeoutId !== null || connectionAttempted) {
+        return; // Timeout already started or connection already attempted
+      }
+      connectionAttempted = true;
+      console.log('[WebRTC] Connection attempt started, beginning connection type detection timeout');
+      timeoutId = window.setTimeout(() => {
+        console.warn('[WebRTC] Timed out waiting to detect connection type.');
+        settle('failed');
+      }, ICE_GATHERING_TIMEOUT_MS);
+    };
+
     const inferAndSettle = async (): Promise<void> => {
       try {
         const connectionType = await inferConnectionTypeFromStats(pc);
@@ -229,6 +243,13 @@ export function detectConnectionType(
 
     const onIceConnectionStateChange = (): void => {
       const state = pc.iceConnectionState;
+      console.log(`[WebRTC] ICE connection state changed to: ${state}`);
+
+      // Start timeout when ICE connection attempts begin
+      if ((state === 'checking' || state === 'connected' || state === 'completed') && !connectionAttempted) {
+        startTimeout();
+      }
+
       if (state === 'failed') {
         console.warn('[WebRTC] ICE connection failed while detecting connection type.');
         settle('failed');
@@ -241,15 +262,13 @@ export function detectConnectionType(
     };
 
     const onConnectionStateChange = (): void => {
-      if (pc.connectionState === 'failed') {
+      const state = pc.connectionState;
+      console.log(`[WebRTC] Connection state changed to: ${state}`);
+
+      if (state === 'failed') {
         settle('failed');
       }
     };
-
-    timeoutId = window.setTimeout(() => {
-      console.warn('[WebRTC] Timed out waiting to detect connection type.');
-      settle('failed');
-    }, ICE_GATHERING_TIMEOUT_MS);
 
     pc.addEventListener('iceconnectionstatechange', onIceConnectionStateChange);
     pc.addEventListener('connectionstatechange', onConnectionStateChange);
@@ -259,7 +278,11 @@ export function detectConnectionType(
       settle('failed');
     } else if (initialState === 'connected' || initialState === 'completed') {
       void inferAndSettle();
+    } else if (initialState === 'checking') {
+      // Connection attempt already in progress
+      startTimeout();
     }
+    // If state is 'new', we wait for it to change before starting timeout
   });
 }
 
@@ -270,6 +293,7 @@ function monitorIceGathering(pc: RTCPeerConnection): Promise<IceGatheringSummary
     let timedOut = false;
     let completed = false;
     let timeoutId: number | null = null;
+    let gatheringStarted = false;
 
     const finish = (): void => {
       if (completed) {
@@ -323,35 +347,62 @@ function monitorIceGathering(pc: RTCPeerConnection): Promise<IceGatheringSummary
       }
     };
 
+    const startTimeout = (): void => {
+      if (timeoutId !== null) {
+        return; // Timeout already started
+      }
+      console.log('[WebRTC] ICE gathering started, beginning timeout monitoring');
+      timeoutId = window.setTimeout(() => {
+        timedOut = true;
+        finish();
+      }, ICE_GATHERING_TIMEOUT_MS);
+    };
+
     const onIceCandidate = (event: RTCPeerConnectionIceEvent): void => {
       const { candidate } = event;
       if (candidate) {
+        // Start timeout on first candidate (confirms gathering has begun)
+        if (!gatheringStarted) {
+          gatheringStarted = true;
+          startTimeout();
+        }
         logIceCandidate(candidate);
         candidates.push(candidate);
         candidateTypes.add(getCandidateType(candidate));
         return;
       }
 
+      // null candidate signals end of gathering
       finish();
     };
 
     const onIceGatheringStateChange = (): void => {
-      if (pc.iceGatheringState === 'complete') {
+      const state = pc.iceGatheringState;
+      console.log(`[WebRTC] ICE gathering state changed to: ${state}`);
+
+      // Start timeout when gathering actually begins
+      if (state === 'gathering' && !gatheringStarted) {
+        gatheringStarted = true;
+        startTimeout();
+      }
+
+      if (state === 'complete') {
         finish();
       }
     };
 
-    timeoutId = window.setTimeout(() => {
-      timedOut = true;
-      finish();
-    }, ICE_GATHERING_TIMEOUT_MS);
-
     pc.addEventListener('icecandidate', onIceCandidate);
     pc.addEventListener('icegatheringstatechange', onIceGatheringStateChange);
 
+    // Check if gathering is already complete or in progress
     if (pc.iceGatheringState === 'complete') {
       finish();
+    } else if (pc.iceGatheringState === 'gathering') {
+      // Gathering already started before we attached listeners
+      gatheringStarted = true;
+      startTimeout();
     }
+    // If state is 'new', we wait for it to change to 'gathering' before starting timeout
   });
 }
 
