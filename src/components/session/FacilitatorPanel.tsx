@@ -175,6 +175,16 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
           const existingSender = senders.get(participantId);
 
           if (existingSender) {
+            // ⚠️ CRITICAL FIX: Check transceiver direction before replacing
+            const transceiver = pc.getTransceivers().find(t => t.sender === existingSender);
+
+            if (transceiver && transceiver.currentDirection === 'inactive') {
+              console.warn(`[FacilitatorPanel] Transceiver for ${participantId} is inactive, fixing...`);
+              transceiver.direction = 'sendonly';
+              // Transceiver direction change requires renegotiation
+              // This will trigger negotiationneeded event
+            }
+
             // Replace track on existing sender
             await replaceAudioTrack(existingSender, facilitatorStream);
             console.log(`[FacilitatorPanel] Replaced facilitator track for ${participantId}`);
@@ -245,6 +255,16 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
           const existingSender = senders.get(participantId);
 
           if (existingSender) {
+            // ⚠️ CRITICAL FIX: Check transceiver direction before replacing
+            const transceiver = pc.getTransceivers().find(t => t.sender === existingSender);
+
+            if (transceiver && transceiver.currentDirection === 'inactive') {
+              console.warn(`[FacilitatorPanel] Transceiver for ${participantId} is inactive, fixing...`);
+              transceiver.direction = 'sendonly';
+              // Transceiver direction change requires renegotiation
+              // This will trigger negotiationneeded event
+            }
+
             // Replace track on existing sender
             await replaceAudioTrack(existingSender, backgroundStream);
             console.log(`[FacilitatorPanel] Replaced background track for ${participantId}`);
