@@ -51,41 +51,52 @@ export function setupRemoteStreamHandling(
   handler: RemoteStreamHandler,
 ): void {
   pc.ontrack = (event) => {
-    console.log('[WebRTC] ontrack event fired', {
+    const { track, transceiver, streams } = event;
+    
+    console.log('[WebRTC] ontrack event', {
       participantId,
-      trackKind: event.track.kind,
-      trackId: event.track.id,
-      trackEnabled: event.track.enabled,
-      trackMuted: event.track.muted,
-      trackReadyState: event.track.readyState,
-      transceiverDirection: event.transceiver.direction,
-      transceiverCurrentDirection: event.transceiver.currentDirection,
+      trackId: track.id,
+      trackKind: track.kind,
+      trackEnabled: track.enabled,
+      trackMuted: track.muted,
+      trackReadyState: track.readyState,
+      transceiverDirection: transceiver.direction,
+      transceiverCurrentDirection: transceiver.currentDirection,
     });
 
-    // ⚠️ CRITICAL: Check and fix transceiver direction
-    const { transceiver } = event;
-    if (transceiver.direction === 'inactive' || transceiver.direction === 'sendonly') {
+    // ⚠️ CRITICAL FIX: Ensure transceiver is set to receive
+    if (transceiver.direction !== 'recvonly' && transceiver.direction !== 'sendrecv') {
       console.warn(
-        `[WebRTC] Transceiver direction is "${transceiver.direction}", changing to "recvonly"`,
+        `[WebRTC] ⚠️ Fixing transceiver direction from "${transceiver.direction}" to "recvonly"`,
       );
       transceiver.direction = 'recvonly';
+      
+      // Note: Changing direction here won't take effect until renegotiation
+      // But it ensures the NEXT negotiation works correctly
     }
 
-    // ⚠️ CRITICAL: Ensure track is enabled at the MediaStreamTrack level
-    event.track.enabled = true;
+    // Monitor for unmute (when RTP packets start arriving)
+    const handleUnmute = () => {
+      console.log(`[WebRTC] ✓ Track UNMUTED for ${participantId} - RTP packets now flowing!`);
+    };
     
-    const [remoteStream] = event.streams;
-    if (remoteStream) {
-      console.log('[WebRTC] Remote stream received', {
-        streamId: remoteStream.id,
-        streamActive: remoteStream.active,
-        trackCount: remoteStream.getTracks().length,
-      });
+    const handleMute = () => {
+      console.warn(`[WebRTC] ✗ Track MUTED for ${participantId} - RTP packets stopped`);
+    };
 
+    track.addEventListener('unmute', handleUnmute);
+    track.addEventListener('mute', handleMute);
+
+    track.enabled = true;
+
+    const [remoteStream] = streams;
+    if (remoteStream) {
       const handleTrackEnded = (): void => {
+        track.removeEventListener('unmute', handleUnmute);
+        track.removeEventListener('mute', handleMute);
         handler.onTrackEnded(participantId);
         remoteStream.removeEventListener('removetrack', handleTrackRemoved);
-        event.track.removeEventListener('ended', handleTrackEnded);
+        track.removeEventListener('ended', handleTrackEnded);
       };
 
       const handleTrackRemoved = (): void => {
@@ -93,20 +104,9 @@ export function setupRemoteStreamHandling(
       };
 
       remoteStream.addEventListener('removetrack', handleTrackRemoved);
-      event.track.addEventListener('ended', handleTrackEnded);
-
-      // Add diagnostic logging for mute/unmute events
-      event.track.addEventListener('mute', () => {
-        console.warn(`[WebRTC] Track muted for ${participantId}`);
-      });
-      
-      event.track.addEventListener('unmute', () => {
-        console.log(`[WebRTC] Track unmuted for ${participantId}`);
-      });
+      track.addEventListener('ended', handleTrackEnded);
 
       handler.onTrack(remoteStream, participantId);
-    } else {
-      console.error('[WebRTC] ontrack fired but no stream in event.streams');
     }
   };
 }
