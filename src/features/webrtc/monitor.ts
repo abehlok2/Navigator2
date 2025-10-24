@@ -10,6 +10,11 @@ export interface ConnectionStats {
   packetLoss: number;
   bitrate: number;
   quality: ConnectionQuality;
+  outboundAudioBitrate?: number;
+  outboundAudioPacketRate?: number;
+  outboundAudioTrackId?: string;
+  outboundAudioMuted?: boolean;
+  outboundAudioEnabled?: boolean;
 }
 
 type QualityChangeHandler = (quality: ConnectionQuality) => void;
@@ -44,6 +49,13 @@ export class ConnectionMonitor {
     packetsLost: number;
     packetsReceived: number;
   } | null = null;
+  private previousOutboundAudio: {
+    timestamp: number;
+    bytesSent: number;
+    packetsSent: number;
+  } | null = null;
+  private consecutiveSilentOutboundIntervals = 0;
+  private lastOutboundAudioLogState: 'active' | 'silent' | null = null;
 
   constructor(peerConnection: RTCPeerConnection) {
     this.pc = peerConnection;
@@ -137,6 +149,17 @@ export class ConnectionMonitor {
     let totalBytesReceived = 0;
     let currentTimestamp = 0;
 
+    const audioSender = this.pc
+      .getSenders()
+      .find((sender) => sender.track && sender.track.kind === 'audio');
+    const audioTrack = audioSender?.track ?? null;
+    const audioTrackId = audioTrack?.id;
+    const audioTrackMuted = audioTrack?.muted;
+    const audioTrackEnabled = audioTrack?.enabled;
+
+    let outboundAudioStats: { bytesSent: number; packetsSent: number; timestamp: number } | null =
+      null;
+
     // Iterate through stats report
     statsReport.forEach((stat) => {
       // Inbound RTP stream stats (for receiving data)
@@ -149,8 +172,14 @@ export class ConnectionMonitor {
 
       // Outbound RTP stream stats (for sending data)
       if (stat.type === 'outbound-rtp' && stat.kind === 'audio') {
-        totalBytesSent += stat.bytesSent || 0;
+        const bytesSent = stat.bytesSent || 0;
+        totalBytesSent += bytesSent;
         currentTimestamp = stat.timestamp || now;
+        outboundAudioStats = {
+          bytesSent,
+          packetsSent: stat.packetsSent || 0,
+          timestamp: stat.timestamp || now,
+        };
       }
 
       // Candidate pair stats (for latency)
@@ -182,6 +211,43 @@ export class ConnectionMonitor {
       bitrate = (bytesDelta * 8) / timeDelta; // Convert bytes to bits
     }
 
+    let outboundAudioBitrate = 0;
+    let outboundAudioPacketRate = 0;
+
+    if (outboundAudioStats) {
+      if (this.previousOutboundAudio) {
+        const timestampDelta = outboundAudioStats.timestamp - this.previousOutboundAudio.timestamp;
+
+        if (timestampDelta > 0) {
+          const timeDeltaSeconds = timestampDelta / 1000;
+          const bytesDelta = outboundAudioStats.bytesSent - this.previousOutboundAudio.bytesSent;
+          const packetsDelta =
+            outboundAudioStats.packetsSent - this.previousOutboundAudio.packetsSent;
+
+          if (timeDeltaSeconds > 0) {
+            outboundAudioBitrate = Math.max(0, (bytesDelta * 8) / timeDeltaSeconds);
+            outboundAudioPacketRate = Math.max(0, packetsDelta / timeDeltaSeconds);
+            this.evaluateOutboundAudioState(
+              outboundAudioBitrate,
+              outboundAudioPacketRate,
+              audioTrackId,
+              audioTrackMuted,
+              audioTrackEnabled,
+            );
+          }
+        }
+      } else {
+        const trackMessage = audioTrackId ? ` for track ${audioTrackId}` : '';
+        console.log(`[ConnectionMonitor] Initialized outbound audio tracking${trackMessage}`);
+      }
+
+      this.previousOutboundAudio = outboundAudioStats;
+    } else {
+      this.previousOutboundAudio = null;
+      this.consecutiveSilentOutboundIntervals = 0;
+      this.lastOutboundAudioLogState = null;
+    }
+
     // Update previous stats for next calculation
     this.previousStats = {
       timestamp: currentTimestamp,
@@ -199,7 +265,50 @@ export class ConnectionMonitor {
       packetLoss: Math.round(packetLoss * 100) / 100, // Round to 2 decimal places
       bitrate: Math.round(bitrate),
       quality,
+      outboundAudioBitrate: outboundAudioStats ? Math.round(outboundAudioBitrate) : undefined,
+      outboundAudioPacketRate: outboundAudioStats
+        ? Math.round(outboundAudioPacketRate * 100) / 100
+        : undefined,
+      outboundAudioTrackId: audioTrackId,
+      outboundAudioMuted: audioTrackMuted,
+      outboundAudioEnabled: audioTrackEnabled,
     };
+  }
+
+  private evaluateOutboundAudioState(
+    bitrate: number,
+    packetRate: number,
+    trackId?: string,
+    muted?: boolean,
+    enabled?: boolean,
+  ): void {
+    const packetRateLabel = Number.isFinite(packetRate) ? packetRate.toFixed(2) : '0.00';
+    const isSilent = bitrate < 100 || packetRate === 0;
+    const roundedBitrate = Math.round(bitrate);
+    const trackLabel = trackId ?? 'unknown';
+    const mutedLabel = typeof muted === 'boolean' ? (muted ? 'muted' : 'unmuted') : 'unknown';
+    const enabledLabel =
+      typeof enabled === 'boolean' ? (enabled ? 'enabled' : 'disabled') : 'unknown';
+
+    if (isSilent) {
+      this.consecutiveSilentOutboundIntervals += 1;
+
+      if (this.consecutiveSilentOutboundIntervals >= 2 && this.lastOutboundAudioLogState !== 'silent') {
+        console.warn(
+          `[ConnectionMonitor] ⚠️ No outbound audio detected from facilitator (bitrate=${roundedBitrate}bps, packets/s=${packetRateLabel}, track=${trackLabel}, muted=${mutedLabel}, enabled=${enabledLabel})`,
+        );
+        this.lastOutboundAudioLogState = 'silent';
+      }
+    } else {
+      if (this.lastOutboundAudioLogState !== 'active') {
+        console.log(
+          `[ConnectionMonitor] ✓ Outbound audio flowing (bitrate=${roundedBitrate}bps, packets/s=${packetRateLabel}${trackId ? `, track=${trackLabel}` : ''}, muted=${mutedLabel}, enabled=${enabledLabel})`,
+        );
+      }
+
+      this.consecutiveSilentOutboundIntervals = 0;
+      this.lastOutboundAudioLogState = 'active';
+    }
   }
 
   /**
@@ -252,5 +361,8 @@ export class ConnectionMonitor {
     this.lastStats = null;
     this.lastQuality = null;
     this.previousStats = null;
+    this.previousOutboundAudio = null;
+    this.consecutiveSilentOutboundIntervals = 0;
+    this.lastOutboundAudioLogState = null;
   }
 }

@@ -155,9 +155,46 @@ export const ConnectionQuality: FC<ConnectionQualityProps> = ({ monitor }) => {
     );
   }
 
-  const { quality, latency, packetLoss, bitrate } = stats;
+  const {
+    quality,
+    latency,
+    packetLoss,
+    bitrate,
+    outboundAudioBitrate,
+    outboundAudioPacketRate,
+    outboundAudioMuted,
+    outboundAudioEnabled,
+    outboundAudioTrackId,
+  } = stats;
   const config = qualityConfig[quality];
   const showPacketLoss = quality === 'poor' || quality === 'critical';
+  const showOutboundAudio =
+    typeof outboundAudioBitrate === 'number' && typeof outboundAudioPacketRate === 'number';
+
+  let outboundAudioSummary = '';
+  if (showOutboundAudio) {
+    const parts: string[] = [
+      formatBitrate(outboundAudioBitrate ?? 0),
+      `${(outboundAudioPacketRate ?? 0).toFixed(2)} pkt/s`,
+    ];
+
+    if (typeof outboundAudioMuted === 'boolean') {
+      parts.push(outboundAudioMuted ? 'muted' : 'unmuted');
+    }
+
+    if (typeof outboundAudioEnabled === 'boolean' && outboundAudioEnabled === false) {
+      parts.push('disabled');
+    }
+
+    if (outboundAudioTrackId) {
+      const trackLabel = outboundAudioTrackId.length > 8
+        ? `${outboundAudioTrackId.slice(0, 8)}…`
+        : outboundAudioTrackId;
+      parts.push(`track ${trackLabel}`);
+    }
+
+    outboundAudioSummary = parts.join(' • ');
+  }
 
   return (
     <div
@@ -197,6 +234,13 @@ export const ConnectionQuality: FC<ConnectionQualityProps> = ({ monitor }) => {
           <span style={statLabelStyles}>Bitrate:</span>
           <span>{formatBitrate(bitrate)}</span>
         </div>
+
+        {showOutboundAudio && (
+          <div style={statRowStyles}>
+            <span style={statLabelStyles}>Outbound audio:</span>
+            <span>{outboundAudioSummary}</span>
+          </div>
+        )}
       </div>
     </div>
   );
