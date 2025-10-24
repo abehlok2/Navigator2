@@ -167,7 +167,7 @@ export const SessionPage = () => {
   >(null);
 
   // Track metadata for identifying track types
-  const trackMetadataRef = useRef<Map<string, 'facilitator-mic' | 'background'>>(new Map());
+  const trackMetadataRef = useRef<Map<string, 'facilitator-mic' | 'background' | 'explorer-mic'>>(new Map());
 
   // Track order counter for identifying tracks by order of receipt
   // Track #1 from facilitator = Facilitator mic, Track #2 = Background audio
