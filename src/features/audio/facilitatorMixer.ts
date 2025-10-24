@@ -1,3 +1,13 @@
+interface DebugMonitorState {
+  analyser: AnalyserNode;
+  buffer: Float32Array<ArrayBuffer>;
+  silentCount: number;
+  label: string;
+  threshold: number;
+  lastLoggedState: 'active' | 'silent' | null;
+  observations: number;
+}
+
 export class FacilitatorAudioMixer {
   private audioContext: AudioContext;
   private micSource: MediaStreamAudioSourceNode | null = null;
@@ -17,6 +27,15 @@ export class FacilitatorAudioMixer {
   private isCrossfading: boolean = false;
   private silentOscillator: OscillatorNode | null = null;
   private silentGain: GainNode | null = null;
+  private masterAnalyser: AnalyserNode;
+  private micAnalyser: AnalyserNode;
+  private backgroundAnalyser: AnalyserNode;
+  private debugStates!: Record<'master' | 'mic' | 'background', DebugMonitorState>;
+  private debugMonitorInterval: number | null = null;
+  private readonly runDebugMonitor = () => {
+    const states = Object.values(this.debugStates) as DebugMonitorState[];
+    states.forEach((state) => this.updateDebugState(state));
+  };
 
   constructor() {
     this.audioContext = new AudioContext({ sampleRate: 48000 });
@@ -28,6 +47,14 @@ export class FacilitatorAudioMixer {
     this.destination = this.audioContext.createMediaStreamDestination();
     this.facilitatorDestination = this.audioContext.createMediaStreamDestination();
     this.backgroundDestination = this.audioContext.createMediaStreamDestination();
+
+    this.masterAnalyser = this.audioContext.createAnalyser();
+    this.micAnalyser = this.audioContext.createAnalyser();
+    this.backgroundAnalyser = this.audioContext.createAnalyser();
+
+    this.masterAnalyser.fftSize = 1024;
+    this.micAnalyser.fftSize = 1024;
+    this.backgroundAnalyser.fftSize = 1024;
 
     this.micGain.gain.value = 1.0;
     this.backgroundGain.gain.value = 0.7;
@@ -43,6 +70,10 @@ export class FacilitatorAudioMixer {
     this.micGain.connect(this.masterGain);
     this.backgroundGain.connect(this.masterGain);
     this.nextBackgroundGain.connect(this.masterGain);
+
+    this.micGain.connect(this.micAnalyser);
+    this.backgroundGain.connect(this.backgroundAnalyser);
+    this.masterGain.connect(this.masterAnalyser);
 
     // Connect to both broadcast destination (for peers) and local speakers (for facilitator to hear)
     this.masterGain.connect(this.destination);
@@ -65,6 +96,14 @@ export class FacilitatorAudioMixer {
     // Start the silent oscillator immediately
     this.silentOscillator.start();
     console.log('[FacilitatorAudioMixer] Silent oscillator started to prevent track muting');
+
+    this.debugStates = {
+      master: this.createDebugState('Master mix', this.masterAnalyser, 0.0005),
+      mic: this.createDebugState('Facilitator microphone', this.micAnalyser, 0.0005),
+      background: this.createDebugState('Background audio', this.backgroundAnalyser, 0.0003),
+    };
+
+    this.startDebugMonitoring();
   }
 
   connectMicrophone(micStream: MediaStream): void {
@@ -404,6 +443,85 @@ export class FacilitatorAudioMixer {
     return this.nextBackgroundAudioElement;
   }
 
+  private createDebugState(
+    label: string,
+    analyser: AnalyserNode,
+    threshold: number,
+  ): DebugMonitorState {
+    const buffer = new Float32Array<ArrayBuffer>(
+      new ArrayBuffer(analyser.fftSize * Float32Array.BYTES_PER_ELEMENT),
+    );
+
+    return {
+      analyser,
+      buffer,
+      silentCount: 0,
+      label,
+      threshold,
+      lastLoggedState: null,
+      observations: 0,
+    };
+  }
+
+  private startDebugMonitoring(): void {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    if (this.debugMonitorInterval !== null) {
+      return;
+    }
+
+    // Run an immediate sample so logs appear quickly when audio becomes active
+    this.runDebugMonitor();
+
+    this.debugMonitorInterval = window.setInterval(() => {
+      try {
+        this.runDebugMonitor();
+      } catch (error) {
+        console.error('[FacilitatorAudioMixer] Debug monitor failed', error);
+      }
+    }, 2000);
+  }
+
+  private updateDebugState(state: DebugMonitorState): void {
+    state.analyser.getFloatTimeDomainData(state.buffer);
+    state.observations += 1;
+
+    let sumSquares = 0;
+    for (let i = 0; i < state.buffer.length; i += 1) {
+      const sample = state.buffer[i];
+      sumSquares += sample * sample;
+    }
+
+    const rms = Math.sqrt(sumSquares / state.buffer.length);
+    const isSilent = rms < state.threshold;
+
+    if (isSilent) {
+      state.silentCount += 1;
+
+      const hasEnoughSamples = state.observations > 3;
+      const shouldLogSilence =
+        hasEnoughSamples && state.silentCount >= 3 && state.lastLoggedState !== 'silent';
+
+      if (shouldLogSilence) {
+        state.lastLoggedState = 'silent';
+        console.warn(
+          `[FacilitatorAudioMixer][Debug] ${state.label} appears SILENT (RMS=${rms.toFixed(6)})`,
+        );
+      }
+    } else {
+      if (state.lastLoggedState !== 'active') {
+        console.log(
+          `[FacilitatorAudioMixer][Debug] ${state.label} audio ACTIVE (RMS=${rms.toFixed(6)})`,
+        );
+      }
+
+      state.silentCount = 0;
+      state.lastLoggedState = 'active';
+    }
+  }
+
   disconnect(): void {
     if (this.micSource) {
       this.micSource.disconnect();
@@ -443,6 +561,11 @@ export class FacilitatorAudioMixer {
     if (this.silentGain) {
       this.silentGain.disconnect();
       this.silentGain = null;
+    }
+
+    if (typeof window !== 'undefined' && this.debugMonitorInterval !== null) {
+      window.clearInterval(this.debugMonitorInterval);
+      this.debugMonitorInterval = null;
     }
 
     void this.audioContext.close();
