@@ -463,6 +463,17 @@ export const SessionPage = () => {
           console.log(`[SessionPage] Track identification method: ${identificationMethod}`);
           console.log(`[SessionPage] Is background track: ${isBackgroundTrack}`);
 
+          // Validation: Warn if track cannot be identified
+          if (identificationMethod === 'unknown') {
+            console.warn(`[SessionPage] ⚠️ Could not identify track type! Defaulting to facilitator mic. Track info:`, {
+              trackId: track.id,
+              trackLabel: trackLabel,
+              contentHint: track.contentHint,
+              trackNumber,
+              participantId,
+            });
+          }
+
           const stream = streams[0] ?? new MediaStream([track]);
           console.log(`[SessionPage] Using stream from: ${streams[0] ? 'WebRTC streams array' : 'new MediaStream created from track'}`);
           console.log(`[SessionPage] Stream active: ${stream.active}, ID: ${stream.id}`);
@@ -793,17 +804,21 @@ export const SessionPage = () => {
             direction: transceiver.direction,
             currentDirection: transceiver.currentDirection,
             kind: transceiver.receiver?.track?.kind,
+            hasSenderTrack: !!transceiver.sender?.track,
           });
 
-          // For incoming tracks (from facilitator), set to recvonly
-          // These transceivers are created by the offer's m-lines
-          if (transceiver.direction === 'recvonly' || transceiver.direction === 'inactive') {
+          // Check if this transceiver is for outgoing audio (we're sending a track)
+          const isOutgoingTrack = !!transceiver.sender?.track;
+
+          if (isOutgoingTrack) {
+            // This transceiver is for our outgoing track (e.g., explorer mic to facilitator)
+            // Keep it as sendonly or sendrecv
+            console.log(`[SessionPage] Transceiver ${index} is for outgoing track, leaving as ${transceiver.direction}`);
+          } else {
+            // This transceiver is for incoming track from remote peer
+            // Set to recvonly to accept the remote track
             console.log(`[SessionPage] Setting transceiver ${index} to recvonly (incoming track)`);
             transceiver.direction = 'recvonly';
-          }
-          // If transceiver already has sendrecv or sendonly, it's for our outgoing track - leave it
-          else if (transceiver.direction === 'sendrecv' || transceiver.direction === 'sendonly') {
-            console.log(`[SessionPage] Transceiver ${index} is for outgoing track, leaving as ${transceiver.direction}`);
           }
         });
 
