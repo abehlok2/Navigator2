@@ -51,8 +51,37 @@ export function setupRemoteStreamHandling(
   handler: RemoteStreamHandler,
 ): void {
   pc.ontrack = (event) => {
+    console.log('[WebRTC] ontrack event fired', {
+      participantId,
+      trackKind: event.track.kind,
+      trackId: event.track.id,
+      trackEnabled: event.track.enabled,
+      trackMuted: event.track.muted,
+      trackReadyState: event.track.readyState,
+      transceiverDirection: event.transceiver.direction,
+      transceiverCurrentDirection: event.transceiver.currentDirection,
+    });
+
+    // ⚠️ CRITICAL: Check and fix transceiver direction
+    const { transceiver } = event;
+    if (transceiver.direction === 'inactive' || transceiver.direction === 'sendonly') {
+      console.warn(
+        `[WebRTC] Transceiver direction is "${transceiver.direction}", changing to "recvonly"`,
+      );
+      transceiver.direction = 'recvonly';
+    }
+
+    // ⚠️ CRITICAL: Ensure track is enabled at the MediaStreamTrack level
+    event.track.enabled = true;
+    
     const [remoteStream] = event.streams;
     if (remoteStream) {
+      console.log('[WebRTC] Remote stream received', {
+        streamId: remoteStream.id,
+        streamActive: remoteStream.active,
+        trackCount: remoteStream.getTracks().length,
+      });
+
       const handleTrackEnded = (): void => {
         handler.onTrackEnded(participantId);
         remoteStream.removeEventListener('removetrack', handleTrackRemoved);
@@ -66,7 +95,18 @@ export function setupRemoteStreamHandling(
       remoteStream.addEventListener('removetrack', handleTrackRemoved);
       event.track.addEventListener('ended', handleTrackEnded);
 
+      // Add diagnostic logging for mute/unmute events
+      event.track.addEventListener('mute', () => {
+        console.warn(`[WebRTC] Track muted for ${participantId}`);
+      });
+      
+      event.track.addEventListener('unmute', () => {
+        console.log(`[WebRTC] Track unmuted for ${participantId}`);
+      });
+
       handler.onTrack(remoteStream, participantId);
+    } else {
+      console.error('[WebRTC] ontrack fired but no stream in event.streams');
     }
   };
 }
