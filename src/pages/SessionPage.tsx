@@ -339,14 +339,6 @@ export const SessionPage = () => {
       const manager = new PeerConnectionManager();
       peerManagerRef.current = manager;
 
-      // Initialize control channel for facilitator role
-      if (userRole === 'facilitator' && !controlChannelRef.current) {
-        console.log('[SessionPage] Initializing ControlChannel for facilitator');
-        const controlCh = new ControlChannel();
-        controlChannelRef.current = controlCh;
-        setControlChannel(controlCh);
-      }
-
       // Listen for ICE candidates from peer connections
       manager.on('iceCandidate', ({ participantId, candidate }) => {
         console.log(`[SessionPage] Sending ICE candidate to ${participantId}`);
@@ -604,6 +596,16 @@ export const SessionPage = () => {
           }
         }
       });
+    }
+
+    // Initialize control channel for facilitator role
+    // This is outside the peer manager creation block so it can be created
+    // even if the peer manager already exists (e.g., when userRole changes to facilitator)
+    if (connectionStatus === 'connected' && userRole === 'facilitator' && !controlChannelRef.current) {
+      console.log('[SessionPage] Initializing ControlChannel for facilitator');
+      const controlCh = new ControlChannel();
+      controlChannelRef.current = controlCh;
+      setControlChannel(controlCh);
     }
 
     return () => {
