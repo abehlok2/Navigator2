@@ -64,6 +64,10 @@ export class ExplorerAudioMixer {
     const track = audioTracks[0];
     console.log(`[ExplorerAudioMixer] Track: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
 
+    // ⚠️ CRITICAL: Ensure track is enabled (not muted at MediaStreamTrack level)
+    track.enabled = true;
+    console.log(`[ExplorerAudioMixer] Enabled track: enabled=${track.enabled}`);
+
     // ⚠️ CRITICAL: Wait for track to be ready
     if (track.readyState !== 'live') {
       console.log('[ExplorerAudioMixer] Track not live yet, waiting...');
@@ -137,6 +141,10 @@ export class ExplorerAudioMixer {
 
     const track = audioTracks[0];
     console.log(`[ExplorerAudioMixer] Background track: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+
+    // ⚠️ CRITICAL: Ensure track is enabled (not muted at MediaStreamTrack level)
+    track.enabled = true;
+    console.log(`[ExplorerAudioMixer] Enabled background track: enabled=${track.enabled}`);
 
     // ⚠️ CRITICAL: Wait for track to be ready
     if (track.readyState !== 'live') {

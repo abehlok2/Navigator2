@@ -37,6 +37,10 @@ export class ListenerAudioMixer {
     const track = audioTracks[0];
     console.log(`[ListenerAudioMixer] Track: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
 
+    // ⚠️ CRITICAL: Ensure track is enabled (not muted at MediaStreamTrack level)
+    track.enabled = true;
+    console.log(`[ListenerAudioMixer] Enabled track for ${participantId}: enabled=${track.enabled}`);
+
     // ⚠️ CRITICAL: Wait for track to be ready
     if (track.readyState !== 'live') {
       console.log(`[ListenerAudioMixer] Track for ${participantId} not live yet, waiting...`);
