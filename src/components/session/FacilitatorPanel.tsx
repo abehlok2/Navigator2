@@ -185,8 +185,8 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
               // This will trigger negotiationneeded event
             }
 
-            // Replace track on existing sender
-            await replaceAudioTrack(existingSender, facilitatorStream);
+            // Replace track on existing sender with contentHint
+            await replaceAudioTrack(existingSender, facilitatorStream, 'speech');
             console.log(`[FacilitatorPanel] Replaced facilitator track for ${participantId}`);
           } else {
             // Add new track and store sender
@@ -265,8 +265,8 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
               // This will trigger negotiationneeded event
             }
 
-            // Replace track on existing sender
-            await replaceAudioTrack(existingSender, backgroundStream);
+            // Replace track on existing sender with contentHint
+            await replaceAudioTrack(existingSender, backgroundStream, 'music');
             console.log(`[FacilitatorPanel] Replaced background track for ${participantId}`);
           } else {
             // Add new track and store sender
