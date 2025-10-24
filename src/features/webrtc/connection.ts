@@ -22,22 +22,42 @@ export async function addAudioTrack(
     throw new Error('No audio track available');
   }
 
-  // Set content hint if provided
+  // Set content hint if provided (must be set before adding to sender)
   if (contentHint) {
     audioTrack.contentHint = contentHint;
   }
 
-  const sender = pc.addTrack(audioTrack, stream);
+  // ⚠️ CRITICAL FIX: Use addTransceiver with explicit 'sendonly' direction
+  // This ensures the transceiver starts in the correct state and avoids 'inactive' issues
+  const transceiver = pc.addTransceiver('audio', {
+    direction: 'sendonly',
+    streams: [stream],
+  });
 
-  const parameters = sender.getParameters();
+  // Replace track on the sender (ensures MediaStreamDestination track is properly attached)
+  await transceiver.sender.replaceTrack(audioTrack);
+
+  // Ensure track is enabled (defensive measure)
+  audioTrack.enabled = true;
+
+  const parameters = transceiver.sender.getParameters();
   if (!parameters.encodings) {
     parameters.encodings = [{}];
   }
   parameters.encodings[0].maxBitrate = 128_000;
   parameters.encodings[0].priority = 'high';
-  await sender.setParameters(parameters);
+  await transceiver.sender.setParameters(parameters);
 
-  return sender;
+  console.log('[WebRTC] Added audio track with sendonly transceiver', {
+    trackId: audioTrack.id,
+    contentHint: audioTrack.contentHint,
+    enabled: audioTrack.enabled,
+    muted: audioTrack.muted,
+    readyState: audioTrack.readyState,
+    transceiverDirection: transceiver.direction,
+  });
+
+  return transceiver.sender;
 }
 
 export interface RemoteStreamHandler {
@@ -114,8 +134,27 @@ export function setupRemoteStreamHandling(
 export async function replaceAudioTrack(
   sender: RTCRtpSender,
   newStream: MediaStream,
+  contentHint?: 'music' | 'speech',
 ): Promise<void> {
   const newTrack = newStream.getAudioTracks()[0] ?? null;
+
+  // Set content hint and ensure track is enabled before replacing
+  if (newTrack) {
+    if (contentHint) {
+      newTrack.contentHint = contentHint;
+    }
+    // ⚠️ CRITICAL: Ensure track is enabled (defensive measure)
+    newTrack.enabled = true;
+
+    console.log('[WebRTC] Replacing audio track', {
+      trackId: newTrack.id,
+      contentHint: newTrack.contentHint,
+      enabled: newTrack.enabled,
+      muted: newTrack.muted,
+      readyState: newTrack.readyState,
+    });
+  }
+
   await sender.replaceTrack(newTrack);
 }
 
