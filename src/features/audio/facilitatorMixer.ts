@@ -15,6 +15,8 @@ export class FacilitatorAudioMixer {
   private facilitatorDestination: MediaStreamAudioDestinationNode;
   private backgroundDestination: MediaStreamAudioDestinationNode;
   private isCrossfading: boolean = false;
+  private silentOscillator: OscillatorNode | null = null;
+  private silentGain: GainNode | null = null;
 
   constructor() {
     this.audioContext = new AudioContext({ sampleRate: 48000 });
@@ -45,6 +47,24 @@ export class FacilitatorAudioMixer {
     // Connect to both broadcast destination (for peers) and local speakers (for facilitator to hear)
     this.masterGain.connect(this.destination);
     this.masterGain.connect(this.audioContext.destination);
+
+    // ⚠️ CRITICAL: Create silent audio source to prevent tracks from being muted
+    // This ensures there's always audio data flowing through the destinations
+    this.silentOscillator = this.audioContext.createOscillator();
+    this.silentGain = this.audioContext.createGain();
+
+    // Configure silent oscillator (completely inaudible)
+    this.silentOscillator.frequency.value = 0; // 0 Hz = no sound
+    this.silentGain.gain.value = 0; // 0 gain = no volume
+
+    // Connect to both facilitator and background destinations to keep them active
+    this.silentOscillator.connect(this.silentGain);
+    this.silentGain.connect(this.facilitatorDestination);
+    this.silentGain.connect(this.backgroundDestination);
+
+    // Start the silent oscillator immediately
+    this.silentOscillator.start();
+    console.log('[FacilitatorAudioMixer] Silent oscillator started to prevent track muting');
   }
 
   connectMicrophone(micStream: MediaStream): void {
@@ -199,6 +219,8 @@ export class FacilitatorAudioMixer {
     const track = stream.getAudioTracks()[0];
     if (track) {
       track.contentHint = 'speech';
+      // ⚠️ CRITICAL: Ensure track is enabled (defensive measure)
+      track.enabled = true;
     }
 
     console.log('[FacilitatorAudioMixer] Getting facilitator stream');
@@ -231,6 +253,8 @@ export class FacilitatorAudioMixer {
     const track = stream.getAudioTracks()[0];
     if (track) {
       track.contentHint = 'music';
+      // ⚠️ CRITICAL: Ensure track is enabled (defensive measure)
+      track.enabled = true;
     }
 
     console.log('[FacilitatorAudioMixer] Getting background stream');
@@ -403,6 +427,23 @@ export class FacilitatorAudioMixer {
       this.nextBackgroundSource = null;
     }
     this.nextBackgroundAudioElement = null;
+
+    // Stop and disconnect silent oscillator
+    if (this.silentOscillator) {
+      try {
+        this.silentOscillator.stop();
+      } catch (error) {
+        // Oscillator might already be stopped
+        console.log('[FacilitatorAudioMixer] Silent oscillator already stopped');
+      }
+      this.silentOscillator.disconnect();
+      this.silentOscillator = null;
+    }
+
+    if (this.silentGain) {
+      this.silentGain.disconnect();
+      this.silentGain = null;
+    }
 
     void this.audioContext.close();
   }
