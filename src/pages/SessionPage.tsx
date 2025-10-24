@@ -588,14 +588,15 @@ export const SessionPage = () => {
         console.log(`[SessionPage] Negotiation needed for ${participantId}`);
 
         // Only facilitator creates offers (to avoid glare)
-        if (userRole === 'facilitator') {
-          try {
-            const offer = await manager.createOffer(participantId);
-            signalingClient.sendOffer(participantId, offer);
-            console.log(`[SessionPage] Sent offer to ${participantId}`);
-          } catch (error) {
-            console.error(`[SessionPage] Failed to create offer for ${participantId}:`, error);
+        if (userRole === 'facilitator' && audioMixer) {
+          const senders = connection.getSenders();
+          const hasAudioSender = senders.some(s => s.track?.kind === 'audio')
+
+          if (!hasAudioSender) {
+            console.log(`[SessionPage] Creating offer but no tracks added yet for ${participantId}`)
           }
+          const offer = await manager.createOffer(participantId);
+          signalingClient.sendOffer(participantId, offer);
         }
       });
     }
