@@ -631,6 +631,7 @@ export const SessionPage = () => {
           console.error('[SessionPage] Failed to create/send offer:', e);
         }
       });
+    }
 
     // Initialize control channel for facilitator role
     // This is outside the peer manager creation block so it can be created
