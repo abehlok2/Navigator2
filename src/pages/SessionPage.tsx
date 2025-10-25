@@ -334,10 +334,42 @@ export const SessionPage = () => {
 
   // Initialize peer connection manager after signaling connects
   useEffect(() => {
+    // Initialize control channel for facilitator role first (before creating peer connections)
+    if (connectionStatus === 'connected' && userRole === 'facilitator' && !controlChannelRef.current) {
+      console.log('[SessionPage] Initializing ControlChannel for facilitator');
+      const controlCh = new ControlChannel();
+      controlChannelRef.current = controlCh;
+      setControlChannel(controlCh);
+    }
+
     if (connectionStatus === 'connected' && !peerManagerRef.current) {
       console.log('[SessionPage] Initializing PeerConnectionManager');
       const manager = new PeerConnectionManager();
       peerManagerRef.current = manager;
+
+      // Create connections for existing participants (in case roomJoined event already fired)
+      const existingParticipants = useSessionStore.getState().participants;
+      console.log(`[SessionPage] Checking for existing participants: ${existingParticipants.length} found`);
+      existingParticipants.forEach((participant) => {
+        // Don't create connection to ourselves
+        if (participant.id === userId) {
+          return;
+        }
+
+        console.log(`[SessionPage] Creating peer connection for existing participant: ${participant.id}`);
+        manager.createConnection(participant.id);
+
+        // If we're the facilitator, create control data channel for this participant
+        if (userRole === 'facilitator') {
+          const pc = manager.getConnection(participant.id);
+          if (pc && controlChannelRef.current) {
+            console.log(`[SessionPage] Creating control data channel for existing participant ${participant.id}`);
+            const dataChannel = pc.createDataChannel('control');
+            controlChannelRef.current.setDataChannel(dataChannel, participant.id);
+            console.log(`[SessionPage] Added control data channel for ${participant.id}`);
+          }
+        }
+      });
 
       // Listen for ICE candidates from peer connections
       manager.on('iceCandidate', ({ participantId, candidate }) => {
@@ -633,16 +665,6 @@ export const SessionPage = () => {
       });
     }
 
-    // Initialize control channel for facilitator role
-    // This is outside the peer manager creation block so it can be created
-    // even if the peer manager already exists (e.g., when userRole changes to facilitator)
-    if (connectionStatus === 'connected' && userRole === 'facilitator' && !controlChannelRef.current) {
-      console.log('[SessionPage] Initializing ControlChannel for facilitator');
-      const controlCh = new ControlChannel();
-      controlChannelRef.current = controlCh;
-      setControlChannel(controlCh);
-    }
-
     return () => {
       // Cleanup peer connections on unmount
       if (peerManagerRef.current) {
@@ -661,7 +683,7 @@ export const SessionPage = () => {
     // triggering cleanup/reinitialization when its state updates. The
     // ControlChannel instance is stored in a ref and does not need effect
     // re-execution on render updates.
-  }, [connectionStatus, signalingClient, userRole]);
+  }, [connectionStatus, signalingClient, userRole, userId]);
 
   useEffect(() => {
     const handleRoomJoined = (payload: SignalingClientEventMap['roomJoined']) => {
