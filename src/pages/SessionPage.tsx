@@ -167,7 +167,7 @@ export const SessionPage = () => {
   >(null);
 
   // Track metadata for identifying track types
-  const trackMetadataRef = useRef<Map<string, 'facilitator-mic' | 'background' | 'explorer-mic'>>(new Map());
+  const trackMetadataRef = useRef<Map<string, { trackType: 'facilitator-mic' | 'background' | 'explorer-mic'; streamId: string }>>(new Map());
 
   // Track order counter for identifying tracks by order of receipt
   // Track #1 from facilitator = Facilitator mic, Track #2 = Background audio
@@ -455,11 +455,22 @@ export const SessionPage = () => {
           }
 
           // Method 2: Check track metadata (fallback/validation)
-          const trackType = trackMetadataRef.current.get(track.id);
-          if (trackType) {
-            const metadataIsBackground = trackType === 'background';
+          const trackMetadata = trackMetadataRef.current.get(track.id);
+          if (trackMetadata) {
+            const metadataIsBackground = trackMetadata.trackType === 'background';
+
+            // ⚠️ CRITICAL: Validate stream ID matches
+            const receivedStreamId = streams[0]?.id;
+            if (receivedStreamId && receivedStreamId !== trackMetadata.streamId) {
+              console.error(
+                `[SessionPage] ⚠️ STREAM ID MISMATCH! Track ${track.id} metadata says streamId=${trackMetadata.streamId}, but received streamId=${receivedStreamId}. This indicates a track/stream association problem.`
+              );
+            } else if (receivedStreamId) {
+              console.log(`[SessionPage] ✓ Stream ID validated: ${receivedStreamId} matches metadata`);
+            }
+
             if (identificationMethod !== 'unknown' && isBackgroundTrack !== metadataIsBackground) {
-              console.warn(`[SessionPage] Track identification mismatch! Order says ${isBackgroundTrack ? 'background' : 'facilitator'}, metadata says ${trackType}`);
+              console.warn(`[SessionPage] Track identification mismatch! Order says ${isBackgroundTrack ? 'background' : 'facilitator'}, metadata says ${trackMetadata.trackType}`);
             }
             // Trust metadata if track order identification failed
             if (identificationMethod === 'unknown') {
@@ -490,7 +501,9 @@ export const SessionPage = () => {
             }
           }
 
-          console.log(`[SessionPage] Track type from metadata: ${trackType || 'unknown'}`);
+          console.log(`[SessionPage] Track type from metadata: ${trackMetadata?.trackType || 'unknown'}`);
+          console.log(`[SessionPage] Stream ID from metadata: ${trackMetadata?.streamId || 'unknown'}`);
+          console.log(`[SessionPage] Stream ID received: ${streams[0]?.id || 'unknown'}`);
           console.log(`[SessionPage] Track contentHint: ${track.contentHint || 'none'}`);
           console.log(`[SessionPage] Track identification method: ${identificationMethod}`);
           console.log(`[SessionPage] Is background track: ${isBackgroundTrack}`);
@@ -1000,7 +1013,10 @@ export const SessionPage = () => {
 
     const handleTrackMetadata = (message: import('../types/control-messages').AudioTrackMetadataMessage) => {
       console.log(`[SessionPage] Received track metadata: trackId=${message.trackId}, type=${message.trackType}, streamId=${message.streamId}`);
-      trackMetadataRef.current.set(message.trackId, message.trackType);
+      trackMetadataRef.current.set(message.trackId, {
+        trackType: message.trackType,
+        streamId: message.streamId,
+      });
     };
 
     controlCh.on('audio:track-metadata', handleTrackMetadata);
