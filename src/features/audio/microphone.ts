@@ -182,6 +182,79 @@ function buildAudioConstraints(deviceId?: string): MediaTrackConstraints {
   return baseConstraints;
 }
 
+function scheduleMicrophoneRmsDiagnostic(stream: MediaStream): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const AudioContextClass = (window.AudioContext ||
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext) as
+    | (new () => AudioContext)
+    | undefined;
+
+  if (!AudioContextClass) {
+    console.warn('[Microphone] Unable to run RMS diagnostic: Web Audio API not supported');
+    return;
+  }
+
+  let context: AudioContext | null = null;
+  try {
+    context = new AudioContextClass();
+  } catch (error) {
+    console.warn('[Microphone] Unable to create AudioContext for RMS diagnostic', error);
+    return;
+  }
+
+  const analyser = context.createAnalyser();
+  analyser.fftSize = 1024;
+
+  const source = context.createMediaStreamSource(stream);
+  source.connect(analyser);
+
+  const buffer = new Float32Array(analyser.fftSize);
+
+  const cleanup = () => {
+    try {
+      source.disconnect();
+    } catch (error) {
+      console.warn('[Microphone] Error disconnecting diagnostic source', error);
+    }
+
+    if (context) {
+      void context.close().catch(() => {
+        /* noop */
+      });
+    }
+  };
+
+  window.setTimeout(() => {
+    try {
+      analyser.getFloatTimeDomainData(buffer);
+
+      let sumSquares = 0;
+      for (let index = 0; index < buffer.length; index += 1) {
+        const sample = buffer[index];
+        sumSquares += sample * sample;
+      }
+
+      const rms = Math.sqrt(sumSquares / buffer.length);
+      const threshold = 0.00001;
+
+      if (Number.isFinite(rms) && rms >= threshold) {
+        console.log('✅ Microphone source is producing audio samples!');
+        console.log('[Microphone] RMS diagnostic level:', rms.toFixed(6));
+      } else {
+        console.error('❌ MICROPHONE SOURCE IS SILENT!');
+        console.error('[Microphone] No discernible microphone samples detected (RMS ~ 0).');
+      }
+    } catch (error) {
+      console.warn('[Microphone] Failed to compute RMS diagnostic', error);
+    } finally {
+      cleanup();
+    }
+  }, 600);
+}
+
 export async function getMicrophoneStream(deviceId?: string): Promise<MediaStream> {
   try {
     const mediaDevices = await ensureMediaDevices();
@@ -191,6 +264,7 @@ export async function getMicrophoneStream(deviceId?: string): Promise<MediaStrea
     };
 
     const stream = await mediaDevices.getUserMedia(constraints);
+    scheduleMicrophoneRmsDiagnostic(stream);
     return stream;
   } catch (error) {
     throw new MicrophoneError(error);

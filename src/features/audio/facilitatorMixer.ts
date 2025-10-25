@@ -191,20 +191,26 @@ export class FacilitatorAudioMixer {
       diagnosticAnalyser.getFloatTimeDomainData(buffer);
 
       let sumSquares = 0;
-      for (let i = 0; i < buffer.length; i++) {
-        sumSquares += buffer[i] * buffer[i];
+      let min = Number.POSITIVE_INFINITY;
+      let max = Number.NEGATIVE_INFINITY;
+      for (let i = 0; i < buffer.length; i += 1) {
+        const sample = buffer[i];
+        sumSquares += sample * sample;
+        if (sample < min) {
+          min = sample;
+        }
+        if (sample > max) {
+          max = sample;
+        }
       }
       const rms = Math.sqrt(sumSquares / buffer.length);
 
       console.log('[FacilitatorAudioMixer] 🔍 MICROPHONE SOURCE DIAGNOSTIC:');
       console.log('[FacilitatorAudioMixer]   RMS level:', rms.toFixed(6));
-      console.log('[FacilitatorAudioMixer]   Sample range:', {
-        min: Math.min(...Array.from(buffer)),
-        max: Math.max(...Array.from(buffer)),
-      });
+      console.log('[FacilitatorAudioMixer]   Sample range:', { min, max });
 
       if (rms < 0.00001) {
-        console.error('[FacilitatorAudioMixer] ❌ MICROPHONE SOURCE IS SILENT! No audio samples detected.');
+        console.error('❌ MICROPHONE SOURCE IS SILENT!');
         console.error('[FacilitatorAudioMixer] ❌ This means the microphone MediaStream is not producing audio data.');
         console.error('[FacilitatorAudioMixer] ❌ Possible causes:');
         console.error('[FacilitatorAudioMixer]    - Microphone is muted at OS level');
@@ -212,7 +218,7 @@ export class FacilitatorAudioMixer {
         console.error('[FacilitatorAudioMixer]    - Wrong audio input device selected');
         console.error('[FacilitatorAudioMixer]    - AudioContext suspended or not running');
       } else {
-        console.log('[FacilitatorAudioMixer] ✅ Microphone source is producing audio samples!');
+        console.log('✅ Microphone source is producing audio samples!');
       }
 
       diagnosticAnalyser.disconnect();
@@ -681,7 +687,7 @@ export class FacilitatorAudioMixer {
         state.lastLoggedState = 'silent';
         if (state.context === 'dispatch') {
           console.warn(
-            `${prefix} ${label} appears SILENT before WebRTC encoding (RMS=${rms.toFixed(6)}). Remote participants may not receive audio.`,
+            `${prefix} ${label} dispatch path is SILENT before WebRTC encoding (RMS=${rms.toFixed(6)}). Remote participants may not receive audio.`,
           );
         } else {
           console.warn(`${prefix} ${label} appears SILENT (RMS=${rms.toFixed(6)})`);
