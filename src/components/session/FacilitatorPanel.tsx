@@ -432,7 +432,7 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
   );
 
   const handleMicrophoneToggle = useCallback(
-    (active: boolean, stream?: MediaStream) => {
+    async (active: boolean, stream?: MediaStream) => {
       setIsMicrophoneActive(active);
 
       if (active && stream) {
@@ -443,7 +443,15 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
 
         if (mixer) {
           try {
+            // ⚠️ CRITICAL: Resume AudioContext BEFORE connecting microphone
+            // This ensures MediaStreamDestination nodes are processing audio
+            await mixer.resumeAudioContext();
+
             mixer.connectMicrophone(stream);
+
+            // Wait a moment for audio to start flowing through the graph
+            await new Promise(resolve => setTimeout(resolve, 50));
+
             // Broadcast the facilitator microphone stream to all peer connections
             const facilitatorStream = mixer.getFacilitatorStream();
             void broadcastFacilitatorTrack(facilitatorStream);
@@ -575,7 +583,7 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
   }, []);
 
   const handleAudioLoad = useCallback(
-    (file: File, audio: HTMLAudioElement) => {
+    async (file: File, audio: HTMLAudioElement) => {
       console.log('[FacilitatorPanel] ========== AUDIO FILE LOADED ==========');
       console.log('[FacilitatorPanel] File:', file.name);
       console.log('[FacilitatorPanel] Duration:', audio.duration);
@@ -598,6 +606,11 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
 
       if (mixer) {
         try {
+          // ⚠️ CRITICAL: Resume AudioContext BEFORE connecting background audio
+          // This ensures MediaStreamDestination nodes are processing audio
+          console.log('[FacilitatorPanel] Resuming AudioContext before connecting background audio...');
+          await mixer.resumeAudioContext();
+
           console.log('[FacilitatorPanel] Connecting background audio to mixer...');
           mixer.connectBackgroundAudio(audio);
           mixer.setBackgroundVolume(targetVolume);
@@ -830,11 +843,13 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
   );
 
   const handleNextTrackLoad = useCallback(
-    (file: File, nextAudioElement: HTMLAudioElement) => {
+    async (file: File, nextAudioElement: HTMLAudioElement) => {
       console.log('[FacilitatorPanel] Loading next track:', file.name);
       setNextTrackFile(file);
 
       if (mixer) {
+        // Ensure AudioContext is running before connecting next track
+        await mixer.resumeAudioContext();
         mixer.connectNextBackgroundAudio(nextAudioElement);
         console.log('[FacilitatorPanel] Next track connected to mixer');
       }
