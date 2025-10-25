@@ -131,6 +131,34 @@ const formatConnectionStatus = (status: ConnectionStatus) => {
   }
 };
 
+type AudioTrackType = 'facilitator-mic' | 'background' | 'explorer-mic';
+
+interface ReceivedTrackMetadata {
+  trackId: string;
+  trackType: AudioTrackType;
+  streamId: string;
+  participantId: string;
+  participantRole: ParticipantRole;
+}
+
+interface PendingTrackEntry {
+  participantId: string;
+  track: MediaStreamTrack;
+  streams: readonly MediaStream[];
+  trackNumber: number;
+  fallbackTimer?: number;
+}
+
+const FALLBACK_METADATA_TIMEOUT_MS = 1500;
+
+interface ProcessAudioTrackParams {
+  participantId: string;
+  track: MediaStreamTrack;
+  streams: readonly MediaStream[];
+  trackNumber: number;
+  metadata: ReceivedTrackMetadata | null;
+}
+
 export const SessionPage = () => {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
@@ -167,11 +195,151 @@ export const SessionPage = () => {
   >(null);
 
   // Track metadata for identifying track types
-  const trackMetadataRef = useRef<Map<string, { trackType: 'facilitator-mic' | 'background' | 'explorer-mic'; streamId: string }>>(new Map());
+  const trackMetadataRef = useRef<Map<string, ReceivedTrackMetadata>>(new Map());
+  const streamMetadataRef = useRef<Map<string, ReceivedTrackMetadata>>(new Map());
+  const pendingTracksRef = useRef<Map<string, PendingTrackEntry>>(new Map());
 
-  // Track order counter for identifying tracks by order of receipt
-  // Track #1 from facilitator = Facilitator mic, Track #2 = Background audio
+  // Track order counter for debugging order of receipt
   const participantTrackCountRef = useRef<Map<string, number>>(new Map());
+
+  const processAudioTrack = useCallback(async ({
+    participantId,
+    track,
+    streams,
+    trackNumber,
+    metadata,
+  }: ProcessAudioTrackParams): Promise<void> => {
+    const pendingEntry = pendingTracksRef.current.get(track.id);
+    if (pendingEntry?.fallbackTimer) {
+      window.clearTimeout(pendingEntry.fallbackTimer);
+    }
+    pendingTracksRef.current.delete(track.id);
+
+    const metadataFromMap = trackMetadataRef.current.get(track.id) ?? null;
+    const resolvedMetadata = metadata ?? metadataFromMap;
+
+    if (resolvedMetadata) {
+      trackMetadataRef.current.set(track.id, resolvedMetadata);
+      streamMetadataRef.current.set(resolvedMetadata.streamId, resolvedMetadata);
+    }
+
+    const stream = streams[0] ?? new MediaStream([track]);
+
+    if (resolvedMetadata && resolvedMetadata.streamId !== stream.id) {
+      console.warn(
+        `[SessionPage] Stream ID mismatch for track ${track.id}: metadata=${resolvedMetadata.streamId}, received=${stream.id}`,
+      );
+    }
+
+    const identificationMethod = resolvedMetadata ? 'metadata' : 'fallback';
+
+    let inferredTrackType: AudioTrackType;
+    if (resolvedMetadata) {
+      inferredTrackType = resolvedMetadata.trackType;
+    } else if (userRole === 'facilitator') {
+      inferredTrackType = 'explorer-mic';
+    } else {
+      inferredTrackType = trackNumber === 2 ? 'background' : 'facilitator-mic';
+    }
+
+    console.log('[SessionPage] Processing audio track', {
+      participantId,
+      trackId: track.id,
+      trackNumber,
+      identificationMethod,
+      inferredTrackType,
+      streamId: stream.id,
+    });
+
+    track.enabled = true;
+
+    if (!stream.active) {
+      await new Promise<void>((resolve) => {
+        const handleActive = () => {
+          if (stream.active) {
+            stream.removeEventListener('addtrack', handleActive);
+            resolve();
+          }
+        };
+
+        stream.addEventListener('addtrack', handleActive);
+
+        const interval = window.setInterval(() => {
+          if (stream.active) {
+            window.clearInterval(interval);
+            stream.removeEventListener('addtrack', handleActive);
+            resolve();
+          }
+        }, 100);
+
+        window.setTimeout(() => {
+          window.clearInterval(interval);
+          stream.removeEventListener('addtrack', handleActive);
+          resolve();
+        }, 3000);
+      });
+    }
+
+    const mixer = audioMixerRef.current;
+    if (!mixer) {
+      console.warn('[SessionPage] No audio mixer available to route track');
+      return;
+    }
+
+    const cleanupHandlers: Array<() => void> = [];
+
+    const handleCleanup = () => {
+      cleanupHandlers.forEach((cleanup) => {
+        try {
+          cleanup();
+        } catch (error) {
+          console.warn('[SessionPage] Error during audio track cleanup', error);
+        }
+      });
+      cleanupHandlers.length = 0;
+      track.removeEventListener('ended', handleCleanup);
+      stream.removeEventListener('removetrack', handleCleanup);
+      streamMetadataRef.current.delete(stream.id);
+      trackMetadataRef.current.delete(track.id);
+    };
+
+    track.addEventListener('ended', handleCleanup);
+    stream.addEventListener('removetrack', handleCleanup);
+
+    if (userRole === 'facilitator') {
+      if (mixer instanceof FacilitatorAudioMixer) {
+        const explorerId = resolvedMetadata?.participantId ?? participantId;
+        mixer.connectExplorerMicrophone(explorerId, stream);
+        cleanupHandlers.push(() => mixer.disconnectExplorerMicrophone(explorerId));
+      } else {
+        console.warn('[SessionPage] Expected facilitator mixer but found different instance');
+      }
+      return;
+    }
+
+    if (mixer instanceof ExplorerAudioMixer) {
+      if (inferredTrackType === 'background') {
+        await mixer.connectBackgroundStream(stream);
+      } else {
+        await mixer.connectFacilitatorStream(stream);
+      }
+      return;
+    }
+
+    if (mixer instanceof ListenerAudioMixer) {
+      const label =
+        inferredTrackType === 'background'
+          ? 'Background'
+          : inferredTrackType === 'facilitator-mic'
+          ? 'Facilitator'
+          : 'Explorer';
+      await mixer.addAudioSource(participantId, stream, label);
+      cleanupHandlers.push(() => mixer.removeAudioSource(participantId, label));
+      return;
+    }
+
+    console.warn('[SessionPage] Unknown mixer type, unable to route audio track');
+  }, [audioMixerRef, userRole]);
 
   // Auto-rejoin logic: Attempt to rejoin room after refresh if session data is persisted
   const autoRejoinAttemptedRef = useRef(false);
@@ -400,215 +568,65 @@ export const SessionPage = () => {
       });
 
       // Listen for remote tracks
-      manager.on('track', async ({ participantId, track, streams }) => {
+      manager.on('track', ({ participantId, track, streams }) => {
         console.log(`[SessionPage] ========== TRACK RECEIVED ==========`);
         console.log(`[SessionPage] Participant: ${participantId}`);
         console.log(`[SessionPage] Track kind: ${track.kind}`);
         console.log(`[SessionPage] Track ID: ${track.id}`);
-        console.log(`[SessionPage] Track enabled: ${track.enabled}`);
-        console.log(`[SessionPage] Track muted: ${track.muted}`);
-        console.log(`[SessionPage] Track readyState: ${track.readyState}`);
         console.log(`[SessionPage] Streams count: ${streams.length}`);
 
-        if (streams.length > 0) {
-          const stream = streams[0];
-          console.log(`[SessionPage] Stream ID: ${stream.id}`);
-          console.log(`[SessionPage] Stream active: ${stream.active}`);
-          console.log(`[SessionPage] Stream audio tracks: ${stream.getAudioTracks().length}`);
-          console.log(`[SessionPage] Stream video tracks: ${stream.getVideoTracks().length}`);
-        }
-
-        console.log(`[SessionPage] Current user role: ${userRole}`);
-        console.log(`[SessionPage] Mixer instance type: ${audioMixerRef.current?.constructor.name || 'null'}`);
-
-        // Handle audio tracks
         if (track.kind === 'audio') {
-          const trackLabel = track.label?.toLowerCase() ?? '';
-
-          // Increment track count for this participant to determine track order
           const currentTrackCount = participantTrackCountRef.current.get(participantId) || 0;
           const trackNumber = currentTrackCount + 1;
           participantTrackCountRef.current.set(participantId, trackNumber);
 
-          console.log(`[SessionPage] Track number for ${participantId}: ${trackNumber}`);
+          const metadata = trackMetadataRef.current.get(track.id) ?? null;
 
-          // Identify track type using multiple methods (in order of reliability):
-          // 1. Track order (most reliable) - Track #1 = Facilitator mic, Track #2 = Background
-          // 2. Track metadata from control channel
-          // 3. contentHint attribute
-          // 4. Track label
-
-          let isBackgroundTrack = false;
-          let identificationMethod = 'unknown';
-
-          // Method 1: Track order (primary method)
-          if (userRole !== 'facilitator') {
-            // For non-facilitators receiving from facilitator:
-            // Track #1 = Facilitator mic, Track #2 = Background audio
-            if (trackNumber === 1) {
-              isBackgroundTrack = false;
-              identificationMethod = 'track-order-1-facilitator';
-            } else if (trackNumber === 2) {
-              isBackgroundTrack = true;
-              identificationMethod = 'track-order-2-background';
-            }
-          }
-
-          // Method 2: Check track metadata (fallback/validation)
-          const trackMetadata = trackMetadataRef.current.get(track.id);
-          if (trackMetadata) {
-            const metadataIsBackground = trackMetadata.trackType === 'background';
-
-            // ⚠️ CRITICAL: Validate stream ID matches
-            const receivedStreamId = streams[0]?.id;
-            if (receivedStreamId && receivedStreamId !== trackMetadata.streamId) {
-              console.error(
-                `[SessionPage] ⚠️ STREAM ID MISMATCH! Track ${track.id} metadata says streamId=${trackMetadata.streamId}, but received streamId=${receivedStreamId}. This indicates a track/stream association problem.`
-              );
-            } else if (receivedStreamId) {
-              console.log(`[SessionPage] ✓ Stream ID validated: ${receivedStreamId} matches metadata`);
-            }
-
-            if (identificationMethod !== 'unknown' && isBackgroundTrack !== metadataIsBackground) {
-              console.warn(`[SessionPage] Track identification mismatch! Order says ${isBackgroundTrack ? 'background' : 'facilitator'}, metadata says ${trackMetadata.trackType}`);
-            }
-            // Trust metadata if track order identification failed
-            if (identificationMethod === 'unknown') {
-              isBackgroundTrack = metadataIsBackground;
-              identificationMethod = 'metadata';
-            }
-          }
-
-          // Method 3: Check contentHint (fallback)
-          if (identificationMethod === 'unknown' && track.contentHint) {
-            if (track.contentHint === 'music') {
-              isBackgroundTrack = true;
-              identificationMethod = 'contentHint';
-            } else if (track.contentHint === 'speech') {
-              isBackgroundTrack = false;
-              identificationMethod = 'contentHint';
-            }
-          }
-
-          // Method 4: Check track label (last resort)
-          if (identificationMethod === 'unknown') {
-            if (trackLabel.includes('background') || trackLabel.includes('music')) {
-              isBackgroundTrack = true;
-              identificationMethod = 'label';
-            } else if (trackLabel.includes('facilitator') || trackLabel.includes('mic')) {
-              isBackgroundTrack = false;
-              identificationMethod = 'label';
-            }
-          }
-
-          console.log(`[SessionPage] Track type from metadata: ${trackMetadata?.trackType || 'unknown'}`);
-          console.log(`[SessionPage] Stream ID from metadata: ${trackMetadata?.streamId || 'unknown'}`);
-          console.log(`[SessionPage] Stream ID received: ${streams[0]?.id || 'unknown'}`);
-          console.log(`[SessionPage] Track contentHint: ${track.contentHint || 'none'}`);
-          console.log(`[SessionPage] Track identification method: ${identificationMethod}`);
-          console.log(`[SessionPage] Is background track: ${isBackgroundTrack}`);
-
-          // Validation: Warn if track cannot be identified
-          if (identificationMethod === 'unknown') {
-            console.warn(`[SessionPage] ⚠️ Could not identify track type! Defaulting to facilitator mic. Track info:`, {
-              trackId: track.id,
-              trackLabel: trackLabel,
-              contentHint: track.contentHint,
-              trackNumber,
+          if (metadata) {
+            console.log(`[SessionPage] Metadata available for track ${track.id}, routing immediately.`);
+            void processAudioTrack({
               participantId,
+              track,
+              streams,
+              trackNumber,
+              metadata,
             });
-          }
-
-          const stream = streams[0] ?? new MediaStream([track]);
-          console.log(`[SessionPage] Using stream from: ${streams[0] ? 'WebRTC streams array' : 'new MediaStream created from track'}`);
-          console.log(`[SessionPage] Stream active: ${stream.active}, ID: ${stream.id}`);
-
-          // ⚠️ CRITICAL: Wait for stream to be active
-          if (!stream.active) {
-            console.log('[SessionPage] Stream not active yet, waiting...');
-            await new Promise<void>((resolve) => {
-              if (stream.active) {
-                resolve();
-                return;
-              }
-
-              const checkActive = () => {
-                if (stream.active) {
-                  stream.removeEventListener('addtrack', checkActive);
-                  resolve();
-                }
-              };
-
-              stream.addEventListener('addtrack', checkActive);
-
-              // Poll as backup
-              const interval = setInterval(() => {
-                if (stream.active) {
-                  clearInterval(interval);
-                  stream.removeEventListener('addtrack', checkActive);
-                  resolve();
-                }
-              }, 100);
-
-              setTimeout(() => {
-                clearInterval(interval);
-                stream.removeEventListener('addtrack', checkActive);
-                console.log(`[SessionPage] Stream activation timeout, proceeding (active: ${stream.active})`);
-                resolve();
-              }, 3000);
-            });
-          }
-
-          console.log(`[SessionPage] Stream state after validation - active: ${stream.active}`);
-
-          const mixer = audioMixerRef.current;
-
-          if (!mixer) {
-            console.warn('[SessionPage] No audio mixer available to route track');
             return;
           }
 
-          if (userRole === 'facilitator') {
-            // Facilitator receiving audio from explorer
-            console.log(`[SessionPage] Routing explorer audio from ${participantId} to facilitator mixer`);
+          console.warn(
+            `[SessionPage] No metadata yet for track ${track.id}. Waiting up to ${FALLBACK_METADATA_TIMEOUT_MS}ms before falling back.`,
+          );
 
-            if (mixer instanceof FacilitatorAudioMixer) {
-              mixer.connectExplorerMicrophone(participantId, stream);
-            }
-          } else {
-            // Explorer or Listener receiving audio from facilitator
-            console.log(
-              `[SessionPage] Routing ${isBackgroundTrack ? 'background' : 'facilitator'} audio to ${userRole} mixer`,
-            );
-
-            if (mixer instanceof ExplorerAudioMixer) {
-              // ⚠️ NOW PROPERLY AWAIT THE ASYNC METHODS
-              if (isBackgroundTrack) {
-                console.log('[SessionPage] Calling mixer.connectBackgroundStream()');
-                await mixer.connectBackgroundStream(stream);
-              } else {
-                console.log('[SessionPage] Calling mixer.connectFacilitatorStream()');
-                await mixer.connectFacilitatorStream(stream);
-              }
-
-              console.log('[SessionPage] Audio connection complete, verifying AudioContext state');
-              console.log(`[SessionPage] AudioContext state: ${mixer['audioContext'].state}`);
-            } else if (mixer instanceof ListenerAudioMixer) {
-              // Listener mixer adds facilitator/background as audio sources
-              console.log('[SessionPage] Calling mixer.addAudioSource()');
-              await mixer.addAudioSource(
-                participantId,
-                stream,
-                isBackgroundTrack ? 'Background' : 'Facilitator',
-              );
-              console.log('[SessionPage] Audio connection complete, verifying AudioContext state');
-            }
+          const existingPending = pendingTracksRef.current.get(track.id);
+          if (existingPending && existingPending.fallbackTimer) {
+            window.clearTimeout(existingPending.fallbackTimer);
           }
 
-          console.log(`[SessionPage] ========== TRACK HANDLING COMPLETE ==========`);
-        } else {
-          console.log(`[SessionPage] Skipping track (kind: ${track.kind}, streams: ${streams.length})`);
+          const fallbackTimer = window.setTimeout(() => {
+            console.warn(
+              `[SessionPage] Metadata timeout for track ${track.id}. Proceeding with fallback identification.`,
+            );
+            void processAudioTrack({
+              participantId,
+              track,
+              streams,
+              trackNumber,
+              metadata: trackMetadataRef.current.get(track.id) ?? null,
+            });
+          }, FALLBACK_METADATA_TIMEOUT_MS);
+
+          pendingTracksRef.current.set(track.id, {
+            participantId,
+            track,
+            streams,
+            trackNumber,
+            fallbackTimer,
+          });
+          return;
         }
+
+        console.log(`[SessionPage] Skipping track (kind: ${track.kind}, streams: ${streams.length})`);
       });
 
       // Listen for data channels
@@ -1007,16 +1025,40 @@ export const SessionPage = () => {
   // Listen for track metadata messages to identify track types
   useEffect(() => {
     const controlCh = controlChannelRef.current;
-    if (!controlCh || userRole === 'facilitator') {
+    if (!controlCh) {
       return;
     }
 
     const handleTrackMetadata = (message: import('../types/control-messages').AudioTrackMetadataMessage) => {
-      console.log(`[SessionPage] Received track metadata: trackId=${message.trackId}, type=${message.trackType}, streamId=${message.streamId}`);
-      trackMetadataRef.current.set(message.trackId, {
+      const metadata: ReceivedTrackMetadata = {
+        trackId: message.trackId,
         trackType: message.trackType,
         streamId: message.streamId,
-      });
+        participantId: message.participantId,
+        participantRole: message.participantRole,
+      };
+
+      console.log(
+        `[SessionPage] Received track metadata: trackId=${metadata.trackId}, type=${metadata.trackType}, streamId=${metadata.streamId}, participant=${metadata.participantId}`,
+      );
+
+      trackMetadataRef.current.set(metadata.trackId, metadata);
+      streamMetadataRef.current.set(metadata.streamId, metadata);
+
+      const pending = pendingTracksRef.current.get(metadata.trackId);
+      if (pending) {
+        if (pending.fallbackTimer) {
+          window.clearTimeout(pending.fallbackTimer);
+        }
+        pendingTracksRef.current.delete(metadata.trackId);
+        void processAudioTrack({
+          participantId: pending.participantId,
+          track: pending.track,
+          streams: pending.streams,
+          trackNumber: pending.trackNumber,
+          metadata,
+        });
+      }
     };
 
     controlCh.on('audio:track-metadata', handleTrackMetadata);
@@ -1024,7 +1066,7 @@ export const SessionPage = () => {
     return () => {
       controlCh.off('audio:track-metadata', handleTrackMetadata);
     };
-  }, [userRole]);
+  }, [controlChannel, processAudioTrack]);
 
   const handleLeaveRoom = useCallback(() => {
     try {

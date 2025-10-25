@@ -74,6 +74,7 @@ export const ExplorerPanel = ({ controlChannel, peerManager, audioMixer }: Explo
   const roomId = useSessionStore((state) => state.roomId);
   const participants = useSessionStore((state) => state.participants);
   const connectionStatus = useSessionStore((state) => state.connectionStatus);
+  const userRole = useSessionStore((state) => state.userRole);
   const currentUserId = useAuthStore((state) => state.user?.id ?? null);
 
   // Microphone state
@@ -108,6 +109,28 @@ export const ExplorerPanel = ({ controlChannel, peerManager, audioMixer }: Explo
   const [backgroundMuted, setBackgroundMuted] = useState(false);
   const [explorerMicVolume, setExplorerMicVolume] = useState(100);
   const [explorerMicMuted, setExplorerMicMuted] = useState(false);
+
+  const announceExplorerTrack = useCallback(
+    (stream: MediaStream | undefined) => {
+      if (!stream || !controlChannel || !currentUserId || userRole !== 'explorer') {
+        return;
+      }
+
+      const track = stream.getAudioTracks()[0];
+      if (!track) {
+        return;
+      }
+
+      controlChannel.send('audio:track-metadata', {
+        trackId: track.id,
+        trackType: 'explorer-mic',
+        streamId: stream.id,
+        participantId: currentUserId,
+        participantRole: 'explorer',
+      });
+    },
+    [controlChannel, currentUserId, userRole],
+  );
 
   // Microphone toggle handler
   const handleMicrophoneToggle = useCallback(async (active: boolean, stream?: MediaStream) => {
@@ -148,13 +171,21 @@ export const ExplorerPanel = ({ controlChannel, peerManager, audioMixer }: Explo
           }
 
           // Replace the existing track
-          await replaceAudioTrack(existingSender, stream);
+          await replaceAudioTrack(existingSender, stream, {
+            contentHint: 'speech',
+            trackLabel: 'Explorer microphone',
+          });
           console.log('[ExplorerPanel] Replaced microphone track to facilitator');
+          announceExplorerTrack(stream);
         } else {
           // Add new track
-          const sender = await addAudioTrack(facilitatorConnection, stream);
+          const sender = await addAudioTrack(facilitatorConnection, stream, {
+            contentHint: 'speech',
+            trackLabel: 'Explorer microphone',
+          });
           micSenderRef.current = sender;
           console.log('[ExplorerPanel] Added microphone track to facilitator');
+          announceExplorerTrack(stream);
         }
       } catch (error) {
         console.error('[ExplorerPanel] Failed to add/replace microphone track:', error);
@@ -168,7 +199,7 @@ export const ExplorerPanel = ({ controlChannel, peerManager, audioMixer }: Explo
         console.error('[ExplorerPanel] Failed to remove microphone track:', error);
       }
     }
-  }, [peerManager, participants]);
+  }, [announceExplorerTrack, peerManager, participants]);
 
   // Volume control handlers - these send control messages to sync with facilitator
   const handleFacilitatorVolumeChange = useCallback((volume: number) => {
@@ -505,15 +536,19 @@ export const ExplorerPanel = ({ controlChannel, peerManager, audioMixer }: Explo
 
     // Re-add microphone track to the (new) facilitator connection
     console.log('[ExplorerPanel] Re-adding microphone track to facilitator connection');
-    addAudioTrack(facilitatorConnection, micStream)
+    addAudioTrack(facilitatorConnection, micStream, {
+      contentHint: 'speech',
+      trackLabel: 'Explorer microphone',
+    })
       .then((sender) => {
         micSenderRef.current = sender;
         console.log('[ExplorerPanel] Successfully re-added microphone track to facilitator');
+        announceExplorerTrack(micStream);
       })
       .catch((error) => {
         console.error('[ExplorerPanel] Failed to re-add microphone track:', error);
       });
-  }, [participants, peerManager, isMicActive, micStream]);
+  }, [announceExplorerTrack, participants, peerManager, isMicActive, micStream]);
 
   // Get session overview data
   const sessionOverview = {

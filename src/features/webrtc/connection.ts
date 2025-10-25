@@ -92,10 +92,15 @@ function attachOutboundAudioDiagnostics(track: MediaStreamTrack, label: string):
   };
 }
 
+export interface AudioTrackSendOptions {
+  contentHint?: 'music' | 'speech';
+  trackLabel?: string;
+}
+
 export async function addAudioTrack(
   pc: RTCPeerConnection,
   stream: MediaStream,
-  contentHint?: 'music' | 'speech',
+  options?: AudioTrackSendOptions,
 ): Promise<RTCRtpSender> {
   const audioTrack = stream.getAudioTracks()[0];
 
@@ -103,14 +108,18 @@ export async function addAudioTrack(
     throw new Error('No audio track available');
   }
 
+  const { contentHint, trackLabel } = options ?? {};
+
   // Set content hint if provided (must be set before adding to sender)
   if (contentHint) {
     audioTrack.contentHint = contentHint;
   }
 
+  const diagnosticsLabel = trackLabel ?? 'Outbound audio track';
+
   // ⚠️ CRITICAL FIX: Use addTransceiver with explicit 'sendonly' direction
   // This ensures the transceiver starts in the correct state and avoids 'inactive' issues
-  const transceiver = pc.addTransceiver('audio', {
+  const transceiver = pc.addTransceiver(audioTrack, {
     direction: 'sendonly',
     streams: [stream],
   });
@@ -118,7 +127,10 @@ export async function addAudioTrack(
   // Replace track on the sender (ensures MediaStreamDestination track is properly attached)
   detachOutboundAudioDiagnostics(transceiver.sender.track ?? undefined);
   await transceiver.sender.replaceTrack(audioTrack);
-  attachOutboundAudioDiagnostics(audioTrack, 'Facilitator outbound track');
+  if (typeof transceiver.sender.setStreams === 'function') {
+    transceiver.sender.setStreams(stream);
+  }
+  attachOutboundAudioDiagnostics(audioTrack, diagnosticsLabel);
 
   // Ensure track is enabled (defensive measure)
   audioTrack.enabled = true;
@@ -138,6 +150,7 @@ export async function addAudioTrack(
     muted: audioTrack.muted,
     readyState: audioTrack.readyState,
     transceiverDirection: transceiver.direction,
+    trackLabel: diagnosticsLabel,
   });
 
   return transceiver.sender;
@@ -217,9 +230,12 @@ export function setupRemoteStreamHandling(
 export async function replaceAudioTrack(
   sender: RTCRtpSender,
   newStream: MediaStream,
-  contentHint?: 'music' | 'speech',
+  options?: AudioTrackSendOptions,
 ): Promise<void> {
   const newTrack = newStream.getAudioTracks()[0] ?? null;
+
+  const { contentHint, trackLabel } = options ?? {};
+  const diagnosticsLabel = trackLabel ?? 'Outbound audio track';
 
   // Set content hint and ensure track is enabled before replacing
   if (newTrack) {
@@ -241,7 +257,10 @@ export async function replaceAudioTrack(
   detachOutboundAudioDiagnostics(sender.track ?? undefined);
   await sender.replaceTrack(newTrack);
   if (newTrack) {
-    attachOutboundAudioDiagnostics(newTrack, 'Facilitator outbound track');
+    if (typeof sender.setStreams === 'function') {
+      sender.setStreams(newStream);
+    }
+    attachOutboundAudioDiagnostics(newTrack, diagnosticsLabel);
   }
 }
 
