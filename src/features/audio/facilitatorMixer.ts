@@ -30,7 +30,9 @@ export class FacilitatorAudioMixer {
   private masterAnalyser: AnalyserNode;
   private micAnalyser: AnalyserNode;
   private backgroundAnalyser: AnalyserNode;
-  private debugStates!: Record<'master' | 'mic' | 'background', DebugMonitorState>;
+  private facilitatorDestinationAnalyser: AnalyserNode;
+  private backgroundDestinationAnalyser: AnalyserNode;
+  private debugStates!: Record<'master' | 'mic' | 'background' | 'facilitatorDest' | 'backgroundDest', DebugMonitorState>;
   private debugMonitorInterval: number | null = null;
   private readonly runDebugMonitor = () => {
     const states = Object.values(this.debugStates) as DebugMonitorState[];
@@ -51,10 +53,14 @@ export class FacilitatorAudioMixer {
     this.masterAnalyser = this.audioContext.createAnalyser();
     this.micAnalyser = this.audioContext.createAnalyser();
     this.backgroundAnalyser = this.audioContext.createAnalyser();
+    this.facilitatorDestinationAnalyser = this.audioContext.createAnalyser();
+    this.backgroundDestinationAnalyser = this.audioContext.createAnalyser();
 
     this.masterAnalyser.fftSize = 1024;
     this.micAnalyser.fftSize = 1024;
     this.backgroundAnalyser.fftSize = 1024;
+    this.facilitatorDestinationAnalyser.fftSize = 1024;
+    this.backgroundDestinationAnalyser.fftSize = 1024;
 
     this.micGain.gain.value = 1.0;
     this.backgroundGain.gain.value = 0.7;
@@ -75,45 +81,118 @@ export class FacilitatorAudioMixer {
     this.backgroundGain.connect(this.backgroundAnalyser);
     this.masterGain.connect(this.masterAnalyser);
 
+    // Connect analysers to monitor destination inputs
+    this.micGain.connect(this.facilitatorDestinationAnalyser);
+    this.backgroundGain.connect(this.backgroundDestinationAnalyser);
+
     // Connect to both broadcast destination (for peers) and local speakers (for facilitator to hear)
     this.masterGain.connect(this.destination);
     this.masterGain.connect(this.audioContext.destination);
 
-    // ⚠️ CRITICAL: Create silent audio source to prevent tracks from being muted
-    // This ensures there's always audio data flowing through the destinations
-    this.silentOscillator = this.audioContext.createOscillator();
+    // ⚠️ CRITICAL: Create constant audio source to ensure MediaStreamDestination nodes process samples
+    // MediaStreamDestination nodes need continuous sample flow to properly capture audio
+    // Using ConstantSourceNode instead of OscillatorNode ensures proper sample generation
+    const constantSource = this.audioContext.createConstantSource();
     this.silentGain = this.audioContext.createGain();
 
-    // Configure silent oscillator (completely inaudible)
-    this.silentOscillator.frequency.value = 0; // 0 Hz = no sound
-    this.silentGain.gain.value = 0; // 0 gain = no volume
+    // Configure constant source (offset=0 produces DC signal, gain=0.0001 makes it effectively inaudible)
+    constantSource.offset.value = 0;
+    this.silentGain.gain.value = 0.0001; // Very low but non-zero to ensure sample flow
 
-    // Connect to all three destinations to keep them active
-    this.silentOscillator.connect(this.silentGain);
+    // Connect to all three destinations to keep them actively processing samples
+    constantSource.connect(this.silentGain);
     this.silentGain.connect(this.facilitatorDestination);
     this.silentGain.connect(this.backgroundDestination);
-    this.silentGain.connect(this.destination); // ⚠️ CRITICAL: Also connect to main mixed destination
+    this.silentGain.connect(this.destination);
 
-    // Start the silent oscillator immediately
-    this.silentOscillator.start();
-    console.log('[FacilitatorAudioMixer] Silent oscillator started to prevent track muting');
+    // Start the constant source immediately
+    constantSource.start();
+    this.silentOscillator = constantSource as unknown as OscillatorNode; // Store reference for cleanup
+    console.log('[FacilitatorAudioMixer] Constant source started to ensure MediaStreamDestination sample flow');
 
     this.debugStates = {
       master: this.createDebugState('Master mix', this.masterAnalyser, 0.0005),
       mic: this.createDebugState('Facilitator microphone', this.micAnalyser, 0.0005),
       background: this.createDebugState('Background audio', this.backgroundAnalyser, 0.0003),
+      facilitatorDest: this.createDebugState('Facilitator destination INPUT', this.facilitatorDestinationAnalyser, 0.0005),
+      backgroundDest: this.createDebugState('Background destination INPUT', this.backgroundDestinationAnalyser, 0.0003),
     };
 
     this.startDebugMonitoring();
   }
 
   connectMicrophone(micStream: MediaStream): void {
+    console.log('[FacilitatorAudioMixer] ========== CONNECTING MICROPHONE ==========');
+    console.log('[FacilitatorAudioMixer] AudioContext state:', this.audioContext.state);
+    console.log('[FacilitatorAudioMixer] Microphone stream active:', micStream.active);
+    console.log('[FacilitatorAudioMixer] Microphone stream id:', micStream.id);
+
+    const tracks = micStream.getAudioTracks();
+    console.log('[FacilitatorAudioMixer] Audio tracks count:', tracks.length);
+    tracks.forEach((track, index) => {
+      console.log(`[FacilitatorAudioMixer] Track ${index}:`, {
+        id: track.id,
+        label: track.label,
+        enabled: track.enabled,
+        muted: track.muted,
+        readyState: track.readyState,
+        contentHint: track.contentHint,
+      });
+    });
+
     if (this.micSource) {
+      console.log('[FacilitatorAudioMixer] Disconnecting previous mic source');
       this.micSource.disconnect();
     }
 
+    console.log('[FacilitatorAudioMixer] Creating MediaStreamSource from microphone');
     this.micSource = this.audioContext.createMediaStreamSource(micStream);
+
+    // ⚠️ DIAGNOSTIC: Verify the MediaStreamSource is actually receiving samples
+    const diagnosticAnalyser = this.audioContext.createAnalyser();
+    diagnosticAnalyser.fftSize = 1024;
+    this.micSource.connect(diagnosticAnalyser);
+
+    // Check for audio samples after a short delay
+    setTimeout(() => {
+      const buffer = new Float32Array(diagnosticAnalyser.fftSize);
+      diagnosticAnalyser.getFloatTimeDomainData(buffer);
+
+      let sumSquares = 0;
+      for (let i = 0; i < buffer.length; i++) {
+        sumSquares += buffer[i] * buffer[i];
+      }
+      const rms = Math.sqrt(sumSquares / buffer.length);
+
+      console.log('[FacilitatorAudioMixer] 🔍 MICROPHONE SOURCE DIAGNOSTIC:');
+      console.log('[FacilitatorAudioMixer]   RMS level:', rms.toFixed(6));
+      console.log('[FacilitatorAudioMixer]   Sample range:', {
+        min: Math.min(...Array.from(buffer)),
+        max: Math.max(...Array.from(buffer)),
+      });
+
+      if (rms < 0.00001) {
+        console.error('[FacilitatorAudioMixer] ❌ MICROPHONE SOURCE IS SILENT! No audio samples detected.');
+        console.error('[FacilitatorAudioMixer] ❌ This means the microphone MediaStream is not producing audio data.');
+        console.error('[FacilitatorAudioMixer] ❌ Possible causes:');
+        console.error('[FacilitatorAudioMixer]    - Microphone is muted at OS level');
+        console.error('[FacilitatorAudioMixer]    - Microphone permission not properly granted');
+        console.error('[FacilitatorAudioMixer]    - Wrong audio input device selected');
+        console.error('[FacilitatorAudioMixer]    - AudioContext suspended or not running');
+      } else {
+        console.log('[FacilitatorAudioMixer] ✅ Microphone source is producing audio samples!');
+      }
+
+      diagnosticAnalyser.disconnect();
+    }, 500);
+
+    console.log('[FacilitatorAudioMixer] Connecting: micSource → micGain → facilitatorDestination');
     this.micSource.connect(this.micGain);
+
+    console.log('[FacilitatorAudioMixer] Current gain values:');
+    console.log('[FacilitatorAudioMixer]   micGain:', this.micGain.gain.value);
+    console.log('[FacilitatorAudioMixer]   masterGain:', this.masterGain.gain.value);
+    console.log('[FacilitatorAudioMixer] ========== MICROPHONE CONNECTION COMPLETE ==========');
   }
 
   /**
@@ -255,17 +334,36 @@ export class FacilitatorAudioMixer {
    * (for broadcasting separately from background audio)
    */
   getFacilitatorStream(): MediaStream {
+    console.log('[FacilitatorAudioMixer] ========== GETTING FACILITATOR STREAM ==========');
+    console.log('[FacilitatorAudioMixer] AudioContext state:', this.audioContext.state);
+    console.log('[FacilitatorAudioMixer] Microphone source connected:', !!this.micSource);
+    console.log('[FacilitatorAudioMixer] MicGain value:', this.micGain.gain.value);
+
     const stream = this.facilitatorDestination.stream;
+    console.log('[FacilitatorAudioMixer] Destination stream id:', stream.id);
+    console.log('[FacilitatorAudioMixer] Destination stream active:', stream.active);
+    console.log('[FacilitatorAudioMixer] Destination stream tracks:', stream.getTracks().length);
+
     const track = stream.getAudioTracks()[0];
     if (track) {
+      console.log('[FacilitatorAudioMixer] Output track details:', {
+        id: track.id,
+        label: track.label,
+        enabled: track.enabled,
+        muted: track.muted,
+        readyState: track.readyState,
+        contentHint: track.contentHint,
+      });
+
       track.contentHint = 'speech';
       // ⚠️ CRITICAL: Ensure track is enabled (defensive measure)
       track.enabled = true;
-    }
 
-    console.log('[FacilitatorAudioMixer] Getting facilitator stream');
-    console.log('[FacilitatorAudioMixer] Stream active:', stream.active);
-    console.log('[FacilitatorAudioMixer] Stream tracks:', stream.getTracks().length);
+      console.log('[FacilitatorAudioMixer] Track contentHint set to: speech');
+      console.log('[FacilitatorAudioMixer] Track enabled set to: true');
+    } else {
+      console.error('[FacilitatorAudioMixer] ❌ NO AUDIO TRACK IN FACILITATOR DESTINATION STREAM!');
+    }
 
     // Ensure all tracks are enabled
     stream.getTracks().forEach((track, index) => {
@@ -276,6 +374,7 @@ export class FacilitatorAudioMixer {
       console.log(`[FacilitatorAudioMixer] Facilitator Track ${index}: kind=${track.kind}, enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
     });
 
+    console.log('[FacilitatorAudioMixer] ========== FACILITATOR STREAM READY ==========');
     return stream;
   }
 
@@ -284,22 +383,49 @@ export class FacilitatorAudioMixer {
    * (for broadcasting separately from microphone)
    */
   getBackgroundStream(): MediaStream | null {
+    console.log('[FacilitatorAudioMixer] ========== GETTING BACKGROUND STREAM ==========');
+
     if (!this.backgroundSource) {
       console.log('[FacilitatorAudioMixer] No background source available');
       return null;
     }
 
+    console.log('[FacilitatorAudioMixer] AudioContext state:', this.audioContext.state);
+    console.log('[FacilitatorAudioMixer] Background source connected:', !!this.backgroundSource);
+    console.log('[FacilitatorAudioMixer] BackgroundGain value:', this.backgroundGain.gain.value);
+    console.log('[FacilitatorAudioMixer] Background audio element:', {
+      paused: this.backgroundAudioElement?.paused,
+      currentTime: this.backgroundAudioElement?.currentTime,
+      duration: this.backgroundAudioElement?.duration,
+      volume: this.backgroundAudioElement?.volume,
+      muted: this.backgroundAudioElement?.muted,
+    });
+
     const stream = this.backgroundDestination.stream;
+    console.log('[FacilitatorAudioMixer] Destination stream id:', stream.id);
+    console.log('[FacilitatorAudioMixer] Destination stream active:', stream.active);
+    console.log('[FacilitatorAudioMixer] Destination stream tracks:', stream.getTracks().length);
+
     const track = stream.getAudioTracks()[0];
     if (track) {
+      console.log('[FacilitatorAudioMixer] Output track details:', {
+        id: track.id,
+        label: track.label,
+        enabled: track.enabled,
+        muted: track.muted,
+        readyState: track.readyState,
+        contentHint: track.contentHint,
+      });
+
       track.contentHint = 'music';
       // ⚠️ CRITICAL: Ensure track is enabled (defensive measure)
       track.enabled = true;
-    }
 
-    console.log('[FacilitatorAudioMixer] Getting background stream');
-    console.log('[FacilitatorAudioMixer] Stream active:', stream.active);
-    console.log('[FacilitatorAudioMixer] Stream tracks:', stream.getTracks().length);
+      console.log('[FacilitatorAudioMixer] Track contentHint set to: music');
+      console.log('[FacilitatorAudioMixer] Track enabled set to: true');
+    } else {
+      console.error('[FacilitatorAudioMixer] ❌ NO AUDIO TRACK IN BACKGROUND DESTINATION STREAM!');
+    }
 
     // Ensure all tracks are enabled
     stream.getTracks().forEach((track, index) => {
@@ -310,6 +436,7 @@ export class FacilitatorAudioMixer {
       console.log(`[FacilitatorAudioMixer] Background Track ${index}: kind=${track.kind}, enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
     });
 
+    console.log('[FacilitatorAudioMixer] ========== BACKGROUND STREAM READY ==========');
     return stream;
   }
 
