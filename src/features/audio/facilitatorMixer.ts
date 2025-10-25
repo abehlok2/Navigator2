@@ -36,6 +36,10 @@ export class FacilitatorAudioMixer {
   private backgroundAnalyser: AnalyserNode;
   private facilitatorDestinationAnalyser: AnalyserNode;
   private backgroundDestinationAnalyser: AnalyserNode;
+  private backgroundFlowSourceBuffer: Float32Array;
+  private backgroundFlowDispatchBuffer: Float32Array;
+  private backgroundFlowSnapshotTimeout: number | null = null;
+  private backgroundFlowInterval: number | null = null;
   private debugStates!: Record<'master' | 'mic' | 'background' | 'facilitatorDest' | 'backgroundDest', DebugMonitorState>;
   private debugMonitorInterval: number | null = null;
   private trackDiagnostics: Array<{
@@ -67,6 +71,9 @@ export class FacilitatorAudioMixer {
     this.backgroundAnalyser = this.audioContext.createAnalyser();
     this.facilitatorDestinationAnalyser = this.audioContext.createAnalyser();
     this.backgroundDestinationAnalyser = this.audioContext.createAnalyser();
+
+    this.backgroundFlowSourceBuffer = new Float32Array(this.backgroundAnalyser.fftSize);
+    this.backgroundFlowDispatchBuffer = new Float32Array(this.backgroundDestinationAnalyser.fftSize);
 
     this.masterAnalyser.fftSize = 1024;
     this.micAnalyser.fftSize = 1024;
@@ -332,6 +339,8 @@ export class FacilitatorAudioMixer {
     console.log('[FacilitatorAudioMixer] Background gain value:', this.backgroundGain.gain.value);
     console.log('[FacilitatorAudioMixer] Master gain value:', this.masterGain.gain.value);
     console.log('[FacilitatorAudioMixer] ========== BACKGROUND AUDIO CONNECTION COMPLETE ==========');
+
+    this.startBackgroundFlowDiagnostics();
   }
 
   /**
@@ -593,6 +602,8 @@ export class FacilitatorAudioMixer {
 
     this.isCrossfading = false;
     console.log('[FacilitatorAudioMixer] ========== CROSSFADE COMPLETE ==========');
+
+    this.startBackgroundFlowDiagnostics();
   }
 
   /**
@@ -850,6 +861,86 @@ export class FacilitatorAudioMixer {
       this.debugMonitorInterval = null;
     }
 
+    if (typeof window !== 'undefined') {
+      if (this.backgroundFlowSnapshotTimeout !== null) {
+        window.clearTimeout(this.backgroundFlowSnapshotTimeout);
+        this.backgroundFlowSnapshotTimeout = null;
+      }
+      if (this.backgroundFlowInterval !== null) {
+        window.clearInterval(this.backgroundFlowInterval);
+        this.backgroundFlowInterval = null;
+      }
+    }
+
     void this.audioContext.close();
+  }
+
+  private startBackgroundFlowDiagnostics(): void {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    if (this.backgroundFlowSnapshotTimeout !== null) {
+      window.clearTimeout(this.backgroundFlowSnapshotTimeout);
+      this.backgroundFlowSnapshotTimeout = null;
+    }
+
+    if (this.backgroundFlowInterval !== null) {
+      window.clearInterval(this.backgroundFlowInterval);
+      this.backgroundFlowInterval = null;
+    }
+
+    const logSnapshot = (context: 'initial' | 'periodic') => {
+      const sourceRms = this.measureRms(this.backgroundAnalyser, this.backgroundFlowSourceBuffer);
+      const dispatchRms = this.measureRms(
+        this.backgroundDestinationAnalyser,
+        this.backgroundFlowDispatchBuffer,
+      );
+
+      const status =
+        sourceRms < 0.00025
+          ? 'SOURCE_SILENT'
+          : dispatchRms < 0.00025
+          ? 'DISPATCH_SILENT'
+          : 'FLOWING';
+
+      const prefix =
+        context === 'initial'
+          ? '[FacilitatorAudioMixer][BackgroundFlow] Initial sample after connection'
+          : '[FacilitatorAudioMixer][BackgroundFlow] Periodic sample';
+
+      const message =
+        status === 'FLOWING'
+          ? 'Background audio samples are flowing toward WebRTC dispatch.'
+          : status === 'DISPATCH_SILENT'
+          ? 'Background source active but dispatch input appears silent – check MediaStreamDestination wiring.'
+          : 'Background audio source appears silent – verify the loaded file is playing.';
+
+      const logFn = status === 'FLOWING' ? console.log : console.warn;
+
+      logFn(`${prefix}: ${message}`, {
+        sourceRms: Number(sourceRms.toFixed(6)),
+        dispatchRms: Number(dispatchRms.toFixed(6)),
+        status,
+      });
+    };
+
+    this.backgroundFlowSnapshotTimeout = window.setTimeout(() => logSnapshot('initial'), 1200);
+
+    this.backgroundFlowInterval = window.setInterval(() => {
+      logSnapshot('periodic');
+    }, 8000);
+  }
+
+  private measureRms(analyser: AnalyserNode, buffer: Float32Array): number {
+    analyser.getFloatTimeDomainData(buffer);
+
+    let sumSquares = 0;
+    for (let i = 0; i < buffer.length; i += 1) {
+      const sample = buffer[i];
+      sumSquares += sample * sample;
+    }
+
+    return Math.sqrt(sumSquares / buffer.length);
   }
 }
