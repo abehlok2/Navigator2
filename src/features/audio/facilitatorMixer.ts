@@ -1,3 +1,5 @@
+type DebugContext = 'internal' | 'dispatch';
+
 interface DebugMonitorState {
   analyser: AnalyserNode;
   buffer: Float32Array<ArrayBuffer>;
@@ -6,6 +8,8 @@ interface DebugMonitorState {
   threshold: number;
   lastLoggedState: 'active' | 'silent' | null;
   observations: number;
+  context: DebugContext;
+  dispatchTarget?: 'facilitator' | 'background';
 }
 
 export class FacilitatorAudioMixer {
@@ -34,6 +38,14 @@ export class FacilitatorAudioMixer {
   private backgroundDestinationAnalyser: AnalyserNode;
   private debugStates!: Record<'master' | 'mic' | 'background' | 'facilitatorDest' | 'backgroundDest', DebugMonitorState>;
   private debugMonitorInterval: number | null = null;
+  private trackDiagnostics: Array<{
+    track: MediaStreamTrack;
+    handlers: {
+      mute: () => void;
+      unmute: () => void;
+      ended: () => void;
+    };
+  }> = [];
   private readonly runDebugMonitor = () => {
     const states = Object.values(this.debugStates) as DebugMonitorState[];
     states.forEach((state) => this.updateDebugState(state));
@@ -115,12 +127,27 @@ export class FacilitatorAudioMixer {
     this.silentOscillator = constantSource as unknown as OscillatorNode; // Store reference for cleanup
     console.log('[FacilitatorAudioMixer] Constant source started to ensure MediaStreamDestination sample flow');
 
+    this.attachDestinationTrackDiagnostics(this.facilitatorDestination, 'facilitator');
+    this.attachDestinationTrackDiagnostics(this.backgroundDestination, 'background');
+
     this.debugStates = {
       master: this.createDebugState('Master mix', this.masterAnalyser, 0.0005),
       mic: this.createDebugState('Facilitator microphone', this.micAnalyser, 0.0005),
       background: this.createDebugState('Background audio', this.backgroundAnalyser, 0.0003),
-      facilitatorDest: this.createDebugState('Facilitator destination INPUT', this.facilitatorDestinationAnalyser, 0.0005),
-      backgroundDest: this.createDebugState('Background destination INPUT', this.backgroundDestinationAnalyser, 0.0003),
+      facilitatorDest: this.createDebugState(
+        'Facilitator destination INPUT',
+        this.facilitatorDestinationAnalyser,
+        0.0005,
+        'dispatch',
+        'facilitator',
+      ),
+      backgroundDest: this.createDebugState(
+        'Background destination INPUT',
+        this.backgroundDestinationAnalyser,
+        0.0003,
+        'dispatch',
+        'background',
+      ),
     };
 
     this.startDebugMonitoring();
@@ -580,6 +607,8 @@ export class FacilitatorAudioMixer {
     label: string,
     analyser: AnalyserNode,
     threshold: number,
+    context: DebugContext = 'internal',
+    dispatchTarget?: 'facilitator' | 'background',
   ): DebugMonitorState {
     const buffer = new Float32Array<ArrayBuffer>(
       new ArrayBuffer(analyser.fftSize * Float32Array.BYTES_PER_ELEMENT),
@@ -593,6 +622,8 @@ export class FacilitatorAudioMixer {
       threshold,
       lastLoggedState: null,
       observations: 0,
+      context,
+      dispatchTarget,
     };
   }
 
@@ -630,6 +661,15 @@ export class FacilitatorAudioMixer {
     const rms = Math.sqrt(sumSquares / state.buffer.length);
     const isSilent = rms < state.threshold;
 
+    const prefix = state.context === 'dispatch' ? '[FacilitatorAudioMixer][Dispatch]' : '[FacilitatorAudioMixer][Debug]';
+    const dispatchLabel =
+      state.dispatchTarget === 'facilitator'
+        ? 'Facilitator microphone dispatch'
+        : state.dispatchTarget === 'background'
+        ? 'Background audio dispatch'
+        : state.label;
+    const label = state.context === 'dispatch' ? dispatchLabel : state.label;
+
     if (isSilent) {
       state.silentCount += 1;
 
@@ -639,20 +679,118 @@ export class FacilitatorAudioMixer {
 
       if (shouldLogSilence) {
         state.lastLoggedState = 'silent';
-        console.warn(
-          `[FacilitatorAudioMixer][Debug] ${state.label} appears SILENT (RMS=${rms.toFixed(6)})`,
-        );
+        if (state.context === 'dispatch') {
+          console.warn(
+            `${prefix} ${label} appears SILENT before WebRTC encoding (RMS=${rms.toFixed(6)}). Remote participants may not receive audio.`,
+          );
+        } else {
+          console.warn(`${prefix} ${label} appears SILENT (RMS=${rms.toFixed(6)})`);
+        }
       }
     } else {
       if (state.lastLoggedState !== 'active') {
-        console.log(
-          `[FacilitatorAudioMixer][Debug] ${state.label} audio ACTIVE (RMS=${rms.toFixed(6)})`,
-        );
+        if (state.context === 'dispatch') {
+          console.log(
+            `${prefix} ${label} audio ACTIVE and ready for transmission (RMS=${rms.toFixed(6)})`,
+          );
+        } else {
+          console.log(`${prefix} ${label} audio ACTIVE (RMS=${rms.toFixed(6)})`);
+        }
       }
 
       state.silentCount = 0;
       state.lastLoggedState = 'active';
     }
+  }
+
+  private attachDestinationTrackDiagnostics(
+    destination: MediaStreamAudioDestinationNode,
+    type: 'facilitator' | 'background',
+  ): void {
+    const stream = destination.stream;
+    const track = stream.getAudioTracks()[0] ?? null;
+    const prefix =
+      type === 'facilitator'
+        ? '[FacilitatorAudioMixer][Dispatch][Facilitator]'
+        : '[FacilitatorAudioMixer][Dispatch][Background]';
+
+    if (!track) {
+      console.warn(`${prefix} No audio track available on destination stream to monitor dispatch state.`);
+      return;
+    }
+
+    const alreadyTracked = this.trackDiagnostics.some((entry) => entry.track === track);
+    if (alreadyTracked) {
+      return;
+    }
+
+    const logTrackSnapshot = (reason: string) => {
+      console.log(`${prefix} ${reason}`, {
+        id: track.id,
+        muted: track.muted,
+        enabled: track.enabled,
+        readyState: track.readyState,
+      });
+    };
+
+    const handleMute = () => {
+      console.warn(
+        `${prefix} MediaStreamTrack reported "mute" – facilitator audio samples are not currently being delivered to WebRTC for encoding.`,
+      );
+      logTrackSnapshot('Track state after mute event');
+    };
+
+    const handleUnmute = () => {
+      console.log(
+        `${prefix} MediaStreamTrack reported "unmute" – facilitator audio samples are flowing to WebRTC for encoding.`,
+      );
+      logTrackSnapshot('Track state after unmute event');
+    };
+
+    const handleEnded = () => {
+      console.error(
+        `${prefix} MediaStreamTrack ended – no further audio will be dispatched to remote participants until a new track is provided.`,
+      );
+      logTrackSnapshot('Track state when ended');
+      this.detachTrackDiagnostics(track);
+    };
+
+    track.addEventListener('mute', handleMute);
+    track.addEventListener('unmute', handleUnmute);
+    track.addEventListener('ended', handleEnded);
+
+    if (typeof track.getSettings === 'function') {
+      try {
+        const settings = track.getSettings();
+        console.log(`${prefix} Initial track settings`, settings);
+      } catch (error) {
+        console.warn(`${prefix} Unable to read track settings for diagnostics`, error);
+      }
+    }
+
+    logTrackSnapshot('Monitoring outbound track state');
+
+    this.trackDiagnostics.push({
+      track,
+      handlers: {
+        mute: handleMute,
+        unmute: handleUnmute,
+        ended: handleEnded,
+      },
+    });
+  }
+
+  private detachTrackDiagnostics(track: MediaStreamTrack): void {
+    const index = this.trackDiagnostics.findIndex((entry) => entry.track === track);
+    if (index === -1) {
+      return;
+    }
+
+    const entry = this.trackDiagnostics[index];
+    track.removeEventListener('mute', entry.handlers.mute);
+    track.removeEventListener('unmute', entry.handlers.unmute);
+    track.removeEventListener('ended', entry.handlers.ended);
+    this.trackDiagnostics.splice(index, 1);
   }
 
   disconnect(): void {
@@ -695,6 +833,11 @@ export class FacilitatorAudioMixer {
       this.silentGain.disconnect();
       this.silentGain = null;
     }
+
+    this.trackDiagnostics.forEach((entry) => {
+      this.detachTrackDiagnostics(entry.track);
+    });
+    this.trackDiagnostics = [];
 
     if (typeof window !== 'undefined' && this.debugMonitorInterval !== null) {
       window.clearInterval(this.debugMonitorInterval);

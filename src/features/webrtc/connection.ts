@@ -11,6 +11,87 @@ export interface IceGatheringSummary {
   timedOut: boolean;
 }
 
+const OUTBOUND_AUDIO_DIAGNOSTICS_SYMBOL: unique symbol = Symbol('navigatorOutboundAudioDiagnostics');
+
+type TrackWithDiagnostics = MediaStreamTrack & {
+  [OUTBOUND_AUDIO_DIAGNOSTICS_SYMBOL]?: () => void;
+};
+
+function detachOutboundAudioDiagnostics(track: MediaStreamTrack | null | undefined): void {
+  if (!track) {
+    return;
+  }
+
+  const typedTrack = track as TrackWithDiagnostics;
+  const teardown = typedTrack[OUTBOUND_AUDIO_DIAGNOSTICS_SYMBOL];
+  if (teardown) {
+    teardown();
+    delete typedTrack[OUTBOUND_AUDIO_DIAGNOSTICS_SYMBOL];
+  }
+}
+
+function attachOutboundAudioDiagnostics(track: MediaStreamTrack, label: string): void {
+  const typedTrack = track as TrackWithDiagnostics;
+  if (typedTrack[OUTBOUND_AUDIO_DIAGNOSTICS_SYMBOL]) {
+    return;
+  }
+
+  const prefix = '[WebRTC][OutboundAudio]';
+  const trackLabel = `${label} (id=${track.id})`;
+
+  const logSnapshot = (reason: string) => {
+    console.log(`${prefix} ${reason}`, {
+      label: trackLabel,
+      muted: track.muted,
+      enabled: track.enabled,
+      readyState: track.readyState,
+    });
+  };
+
+  const handleMute = () => {
+    console.warn(
+      `${prefix} ${trackLabel} reported "mute" – outbound audio samples are not currently reaching the encoder.`,
+    );
+    logSnapshot('Track state after mute event');
+  };
+
+  const handleUnmute = () => {
+    console.log(
+      `${prefix} ${trackLabel} reported "unmute" – outbound audio samples are flowing to the encoder.`,
+    );
+    logSnapshot('Track state after unmute event');
+  };
+
+  const handleEnded = () => {
+    console.error(
+      `${prefix} ${trackLabel} ended – outbound audio will stop until a new track is provided.`,
+    );
+    logSnapshot('Track state when ended');
+    detachOutboundAudioDiagnostics(track);
+  };
+
+  track.addEventListener('mute', handleMute);
+  track.addEventListener('unmute', handleUnmute);
+  track.addEventListener('ended', handleEnded);
+
+  if (typeof track.getSettings === 'function') {
+    try {
+      const settings = track.getSettings();
+      console.log(`${prefix} ${trackLabel} initial settings`, settings);
+    } catch (error) {
+      console.warn(`${prefix} ${trackLabel} unable to read settings for diagnostics`, error);
+    }
+  }
+
+  logSnapshot('Monitoring outbound track state');
+
+  typedTrack[OUTBOUND_AUDIO_DIAGNOSTICS_SYMBOL] = () => {
+    track.removeEventListener('mute', handleMute);
+    track.removeEventListener('unmute', handleUnmute);
+    track.removeEventListener('ended', handleEnded);
+  };
+}
+
 export async function addAudioTrack(
   pc: RTCPeerConnection,
   stream: MediaStream,
@@ -35,7 +116,9 @@ export async function addAudioTrack(
   });
 
   // Replace track on the sender (ensures MediaStreamDestination track is properly attached)
+  detachOutboundAudioDiagnostics(transceiver.sender.track ?? undefined);
   await transceiver.sender.replaceTrack(audioTrack);
+  attachOutboundAudioDiagnostics(audioTrack, 'Facilitator outbound track');
 
   // Ensure track is enabled (defensive measure)
   audioTrack.enabled = true;
@@ -155,7 +238,11 @@ export async function replaceAudioTrack(
     });
   }
 
+  detachOutboundAudioDiagnostics(sender.track ?? undefined);
   await sender.replaceTrack(newTrack);
+  if (newTrack) {
+    attachOutboundAudioDiagnostics(newTrack, 'Facilitator outbound track');
+  }
 }
 
 type CandidateStats = RTCStats & {
