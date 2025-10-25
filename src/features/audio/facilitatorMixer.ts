@@ -88,10 +88,11 @@ export class FacilitatorAudioMixer {
     this.silentOscillator.frequency.value = 0; // 0 Hz = no sound
     this.silentGain.gain.value = 0; // 0 gain = no volume
 
-    // Connect to both facilitator and background destinations to keep them active
+    // Connect to all three destinations to keep them active
     this.silentOscillator.connect(this.silentGain);
     this.silentGain.connect(this.facilitatorDestination);
     this.silentGain.connect(this.backgroundDestination);
+    this.silentGain.connect(this.destination); // ⚠️ CRITICAL: Also connect to main mixed destination
 
     // Start the silent oscillator immediately
     this.silentOscillator.start();
