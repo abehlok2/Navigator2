@@ -68,9 +68,14 @@ export class FacilitatorAudioMixer {
     this.masterGain.gain.value = 1.0;
 
     // Connect mic and background to their individual destinations
+    //
+    const preDestinationAnalyzer = this.audioContext.createAnalyser();
+    preDestinationAnalyzer.fftSize = 256;
     this.micGain.connect(this.facilitatorDestination);
     this.backgroundGain.connect(this.backgroundDestination);
     this.nextBackgroundGain.connect(this.backgroundDestination);
+    this.backgroundGain.connect(preDestinationAnalyzer)
+    this.micGain.connect(preDestinationAnalyzer)
 
     // Also connect to master for local playback
     this.micGain.connect(this.masterGain);
