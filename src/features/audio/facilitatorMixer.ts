@@ -2,7 +2,7 @@ type DebugContext = 'internal' | 'dispatch';
 
 interface DebugMonitorState {
   analyser: AnalyserNode;
-  buffer: Float32Array<ArrayBuffer>;
+  buffer: Float32Array;
   silentCount: number;
   label: string;
   threshold: number;
@@ -627,9 +627,7 @@ export class FacilitatorAudioMixer {
     context: DebugContext = 'internal',
     dispatchTarget?: 'facilitator' | 'background',
   ): DebugMonitorState {
-    const buffer = new Float32Array<ArrayBuffer>(
-      new ArrayBuffer(analyser.fftSize * Float32Array.BYTES_PER_ELEMENT),
-    );
+    const buffer = new Float32Array(analyser.fftSize);
 
     return {
       analyser,
@@ -666,7 +664,9 @@ export class FacilitatorAudioMixer {
   }
 
   private updateDebugState(state: DebugMonitorState): void {
-    state.analyser.getFloatTimeDomainData(state.buffer);
+    state.analyser.getFloatTimeDomainData(
+      state.buffer as unknown as Float32Array<ArrayBuffer>,
+    );
     state.observations += 1;
 
     let sumSquares = 0;
@@ -933,7 +933,7 @@ export class FacilitatorAudioMixer {
   }
 
   private measureRms(analyser: AnalyserNode, buffer: Float32Array): number {
-    analyser.getFloatTimeDomainData(buffer);
+    analyser.getFloatTimeDomainData(buffer as unknown as Float32Array<ArrayBuffer>);
 
     let sumSquares = 0;
     for (let i = 0; i < buffer.length; i += 1) {

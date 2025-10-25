@@ -93,6 +93,8 @@ const toTitleCase = (value: string): string => {
 export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPanelProps) => {
   const roomId = useSessionStore((state) => state.roomId);
   const participants = useSessionStore((state) => state.participants);
+  const userId = useSessionStore((state) => state.userId);
+  const userRole = useSessionStore((state) => state.userRole);
   const connectionStatus = useSessionStore((state) => state.connectionStatus);
 
   const [mixer, setMixer] = useState<FacilitatorAudioMixer | null>(null);
@@ -139,11 +141,13 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
 
       // Send track metadata before broadcasting
       const track = facilitatorStream.getAudioTracks()[0];
-      if (track && controlChannel) {
+      if (track && controlChannel && userId && userRole) {
         controlChannel.send('audio:track-metadata', {
           trackId: track.id,
           trackType: 'facilitator-mic',
           streamId: facilitatorStream.id,
+          participantId: userId,
+          participantRole: userRole,
         });
       }
 
@@ -186,11 +190,17 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
             }
 
             // Replace track on existing sender with contentHint
-            await replaceAudioTrack(existingSender, facilitatorStream, 'speech');
+            await replaceAudioTrack(existingSender, facilitatorStream, {
+              contentHint: 'speech',
+              trackLabel: 'Facilitator microphone',
+            });
             console.log(`[FacilitatorPanel] Replaced facilitator track for ${participantId}`);
           } else {
             // Add new track and store sender
-            const sender = await addAudioTrack(pc, facilitatorStream, 'speech');
+            const sender = await addAudioTrack(pc, facilitatorStream, {
+              contentHint: 'speech',
+              trackLabel: 'Facilitator microphone',
+            });
             senders.set(participantId, sender);
             console.log(`[FacilitatorPanel] Added facilitator track for ${participantId}`);
           }
@@ -219,11 +229,13 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
 
       // Send track metadata before broadcasting
       const track = backgroundStream.getAudioTracks()[0];
-      if (track && controlChannel) {
+      if (track && controlChannel && userId && userRole) {
         controlChannel.send('audio:track-metadata', {
           trackId: track.id,
           trackType: 'background',
           streamId: backgroundStream.id,
+          participantId: userId,
+          participantRole: userRole,
         });
       }
 
@@ -266,11 +278,17 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
             }
 
             // Replace track on existing sender with contentHint
-            await replaceAudioTrack(existingSender, backgroundStream, 'music');
+            await replaceAudioTrack(existingSender, backgroundStream, {
+              contentHint: 'music',
+              trackLabel: 'Facilitator background audio',
+            });
             console.log(`[FacilitatorPanel] Replaced background track for ${participantId}`);
           } else {
             // Add new track and store sender
-            const sender = await addAudioTrack(pc, backgroundStream, 'music');
+            const sender = await addAudioTrack(pc, backgroundStream, {
+              contentHint: 'music',
+              trackLabel: 'Facilitator background audio',
+            });
             senders.set(participantId, sender);
             console.log(`[FacilitatorPanel] Added background track for ${participantId}`);
           }

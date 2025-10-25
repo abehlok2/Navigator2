@@ -1,3 +1,5 @@
+import type { ParticipantRole } from './session';
+
 /**
  * Control message types for session coordination between facilitator and explorers
  */
@@ -111,6 +113,8 @@ export interface AudioTrackMetadataMessage extends BaseControlMessage<'audio:tra
   trackId: string;
   trackType: 'facilitator-mic' | 'background' | 'explorer-mic';
   streamId: string;
+  participantId: string;
+  participantRole: ParticipantRole;
 }
 
 /**
