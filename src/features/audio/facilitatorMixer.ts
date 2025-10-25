@@ -25,8 +25,6 @@ export class FacilitatorAudioMixer {
   private facilitatorDestination: MediaStreamAudioDestinationNode;
   private backgroundDestination: MediaStreamAudioDestinationNode;
   private isCrossfading: boolean = false;
-  private silentOscillator: OscillatorNode | null = null;
-  private silentGain: GainNode | null = null;
   private masterAnalyser: AnalyserNode;
   private micAnalyser: AnalyserNode;
   private backgroundAnalyser: AnalyserNode;
@@ -88,27 +86,6 @@ export class FacilitatorAudioMixer {
     // Connect to both broadcast destination (for peers) and local speakers (for facilitator to hear)
     this.masterGain.connect(this.destination);
     this.masterGain.connect(this.audioContext.destination);
-
-    // ⚠️ CRITICAL: Create constant audio source to ensure MediaStreamDestination nodes process samples
-    // MediaStreamDestination nodes need continuous sample flow to properly capture audio
-    // Using ConstantSourceNode instead of OscillatorNode ensures proper sample generation
-    const constantSource = this.audioContext.createConstantSource();
-    this.silentGain = this.audioContext.createGain();
-
-    // Configure constant source (offset=0 produces DC signal, gain=0.0001 makes it effectively inaudible)
-    constantSource.offset.value = 0;
-    this.silentGain.gain.value = 0.0001; // Very low but non-zero to ensure sample flow
-
-    // Connect to all three destinations to keep them actively processing samples
-    constantSource.connect(this.silentGain);
-    this.silentGain.connect(this.facilitatorDestination);
-    this.silentGain.connect(this.backgroundDestination);
-    this.silentGain.connect(this.destination);
-
-    // Start the constant source immediately
-    constantSource.start();
-    this.silentOscillator = constantSource as unknown as OscillatorNode; // Store reference for cleanup
-    console.log('[FacilitatorAudioMixer] Constant source started to ensure MediaStreamDestination sample flow');
 
     this.debugStates = {
       master: this.createDebugState('Master mix', this.masterAnalyser, 0.0005),
@@ -673,23 +650,6 @@ export class FacilitatorAudioMixer {
       this.nextBackgroundSource = null;
     }
     this.nextBackgroundAudioElement = null;
-
-    // Stop and disconnect silent oscillator
-    if (this.silentOscillator) {
-      try {
-        this.silentOscillator.stop();
-      } catch (error) {
-        // Oscillator might already be stopped
-        console.log('[FacilitatorAudioMixer] Silent oscillator already stopped');
-      }
-      this.silentOscillator.disconnect();
-      this.silentOscillator = null;
-    }
-
-    if (this.silentGain) {
-      this.silentGain.disconnect();
-      this.silentGain = null;
-    }
 
     if (typeof window !== 'undefined' && this.debugMonitorInterval !== null) {
       window.clearInterval(this.debugMonitorInterval);
