@@ -475,6 +475,46 @@ export const ExplorerPanel = ({ controlChannel, peerManager, audioMixer }: Explo
     };
   }, [audioMixer, controlChannel, currentUserId, latencyCompensator]);
 
+  // Re-send microphone track when facilitator connection changes (e.g., facilitator reconnects)
+  useEffect(() => {
+    if (!peerManager || !isMicActive || !micStream) {
+      return;
+    }
+
+    // Find the facilitator participant
+    const facilitator = participants.find((p) => p.role === 'facilitator');
+    if (!facilitator) {
+      return;
+    }
+
+    const facilitatorConnection = peerManager.getConnection(facilitator.id);
+    if (!facilitatorConnection) {
+      return;
+    }
+
+    // Check if we already have a sender for this connection
+    const existingSender = micSenderRef.current;
+    if (existingSender) {
+      // Verify the sender still belongs to the current connection
+      const senders = facilitatorConnection.getSenders();
+      if (senders.includes(existingSender)) {
+        // Sender is still valid, no need to re-add
+        return;
+      }
+    }
+
+    // Re-add microphone track to the (new) facilitator connection
+    console.log('[ExplorerPanel] Re-adding microphone track to facilitator connection');
+    addAudioTrack(facilitatorConnection, micStream)
+      .then((sender) => {
+        micSenderRef.current = sender;
+        console.log('[ExplorerPanel] Successfully re-added microphone track to facilitator');
+      })
+      .catch((error) => {
+        console.error('[ExplorerPanel] Failed to re-add microphone track:', error);
+      });
+  }, [participants, peerManager, isMicActive, micStream]);
+
   // Get session overview data
   const sessionOverview = {
     roomId: roomId ?? 'N/A',

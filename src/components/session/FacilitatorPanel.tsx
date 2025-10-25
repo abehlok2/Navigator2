@@ -1178,6 +1178,34 @@ export const FacilitatorPanel = ({ controlChannel, peerManager }: FacilitatorPan
     };
   }, [controlChannel, mixer]);
 
+  // Re-broadcast active audio tracks when participants change (e.g., new participant joins or facilitator reconnects)
+  useEffect(() => {
+    if (!peerManager || !mixer) {
+      return;
+    }
+
+    const participantIds = peerManager.getParticipantIds();
+    if (participantIds.length === 0) {
+      return;
+    }
+
+    console.log('[FacilitatorPanel] Participants changed, checking if audio needs to be re-broadcast');
+
+    // Re-broadcast facilitator microphone if active
+    if (isMicrophoneActive && microphoneStream) {
+      console.log('[FacilitatorPanel] Re-broadcasting facilitator microphone to new/reconnected participants');
+      const facilitatorStream = mixer.getFacilitatorStream();
+      void broadcastFacilitatorTrack(facilitatorStream);
+    }
+
+    // Re-broadcast background audio if playing
+    if (playbackState === 'playing' && audioPlayer) {
+      console.log('[FacilitatorPanel] Re-broadcasting background audio to new/reconnected participants');
+      const backgroundStream = mixer.getBackgroundStream();
+      void broadcastBackgroundTrack(backgroundStream);
+    }
+  }, [participants, peerManager, mixer, isMicrophoneActive, microphoneStream, playbackState, audioPlayer, broadcastFacilitatorTrack, broadcastBackgroundTrack]);
+
   return (
     <section style={panelStyles} aria-label="Facilitator controls">
       <SessionHeader {...sessionOverview} />
