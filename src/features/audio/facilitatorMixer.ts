@@ -82,7 +82,7 @@ export class FacilitatorAudioMixer {
     this.backgroundDestinationAnalyser.fftSize = 1024;
 
     this.micGain.gain.value = 1.0;
-    this.backgroundGain.gain.value = 0.7;
+    this.backgroundGain.gain.value = 1.0;
     this.nextBackgroundGain.gain.value = 0.0; // Start at 0 for next track
     this.masterGain.gain.value = 1.0;
 
@@ -683,8 +683,8 @@ export class FacilitatorAudioMixer {
       state.dispatchTarget === 'facilitator'
         ? 'Facilitator microphone dispatch'
         : state.dispatchTarget === 'background'
-        ? 'Background audio dispatch'
-        : state.label;
+          ? 'Background audio dispatch'
+          : state.label;
     const label = state.context === 'dispatch' ? dispatchLabel : state.label;
 
     if (isSilent) {
@@ -901,8 +901,8 @@ export class FacilitatorAudioMixer {
         sourceRms < 0.00025
           ? 'SOURCE_SILENT'
           : dispatchRms < 0.00025
-          ? 'DISPATCH_SILENT'
-          : 'FLOWING';
+            ? 'DISPATCH_SILENT'
+            : 'FLOWING';
 
       const prefix =
         context === 'initial'
@@ -913,8 +913,8 @@ export class FacilitatorAudioMixer {
         status === 'FLOWING'
           ? 'Background audio samples are flowing toward WebRTC dispatch.'
           : status === 'DISPATCH_SILENT'
-          ? 'Background source active but dispatch input appears silent – check MediaStreamDestination wiring.'
-          : 'Background audio source appears silent – verify the loaded file is playing.';
+            ? 'Background source active but dispatch input appears silent – check MediaStreamDestination wiring.'
+            : 'Background audio source appears silent – verify the loaded file is playing.';
 
       const logFn = status === 'FLOWING' ? console.log : console.warn;
 

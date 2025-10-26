@@ -42,7 +42,7 @@ export class ExplorerAudioMixer {
     this.masterGain = this.audioContext.createGain();
 
     this.facilitatorGain.gain.value = 1.0;
-    this.backgroundGain.gain.value = 0.8;
+    this.backgroundGain.gain.value = 1.0;
     this.masterGain.gain.value = 1.0;
 
     this.facilitatorGain.connect(this.masterGain);
