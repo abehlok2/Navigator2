@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  # Backend service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: navigator-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+    ports:
+      - "4000:4000"
+    networks:
+      - navigator-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Frontend with nginx reverse proxy
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_BASE_URL=/api
+        - VITE_SIGNALING_SERVER_URL=${VITE_SIGNALING_SERVER_URL:-ws://localhost/signaling}
+        - VITE_SOCKET_SERVER_URL=${VITE_SOCKET_SERVER_URL:-http://localhost}
+    container_name: navigator-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - navigator-network
+    volumes:
+      # Mount SSL certificates if using HTTPS (optional)
+      # - ./ssl/cert.pem:/etc/nginx/ssl/cert.pem:ro
+      # - ./ssl/key.pem:/etc/nginx/ssl/key.pem:ro
+      # Mount custom nginx config if needed (optional)
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+networks:
+  navigator-network:
+    driver: bridge
